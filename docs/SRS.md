@@ -9,7 +9,7 @@ Drop-in text for the BTS-Version-Control (bts) SRS. Priority key: **E** = Essent
 | 0.1 | Nov 2026 | Tejasv , Sarthak | Initial draft |
 | 0.2 | Nov 2026 | Tejasv Lata, Sarthak | Added priorities, error and configuration requirements, edge cases, full traceability matrix, appendices |
 
-## B. Corrections to Section 1
+## B. Corrections to Section 1 
 
 **1.3 (BTS):** Replace the entry with: *BTS: Project name, derived from the authors' first names (Bharat, Tejasv, Sarthak).*
 
