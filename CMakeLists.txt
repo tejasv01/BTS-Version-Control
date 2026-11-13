@@ -21,6 +21,7 @@ add_library(bts_lib STATIC
     src/core/refs.cpp
     src/commands/branch.cpp
     src/commands/checkout.cpp
+    src/commands/log.cpp
 )
 
 target_include_directories(bts_lib PUBLIC
@@ -52,3 +53,4 @@ endfunction()
 bts_add_test(test_refs     tests/test_refs.cpp)
 bts_add_test(test_branch   tests/test_branch.cpp)
 bts_add_test(test_checkout tests/test_checkout.cpp)
+bts_add_test(test_log      tests/test_log.cpp)
