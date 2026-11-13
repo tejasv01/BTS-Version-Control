@@ -22,6 +22,7 @@ add_library(bts_lib STATIC
     src/commands/branch.cpp
     src/commands/checkout.cpp
     src/commands/log.cpp
+    src/commands/cli.cpp
 )
 
 target_include_directories(bts_lib PUBLIC
@@ -39,6 +40,11 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VER
     target_link_libraries(bts_lib PUBLIC c++fs)
 endif()
 
+add_executable(bts src/main.cpp)
+target_link_libraries(bts PRIVATE bts_lib)
+
+install(TARGETS bts DESTINATION bin)
+
 enable_testing()
 
 function(bts_add_test TEST_NAME TEST_SOURCE)
@@ -54,3 +60,4 @@ bts_add_test(test_refs     tests/test_refs.cpp)
 bts_add_test(test_branch   tests/test_branch.cpp)
 bts_add_test(test_checkout tests/test_checkout.cpp)
 bts_add_test(test_log      tests/test_log.cpp)
+bts_add_test(test_cli      tests/test_cli.cpp)
