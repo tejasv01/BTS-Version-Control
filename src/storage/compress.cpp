@@ -2,6 +2,7 @@
 
 #include <zlib.h>
 #include <array>
+#include <limits>
 #include <stdexcept>
 
 namespace bts {
@@ -9,6 +10,11 @@ namespace bts {
 std::string compress_data(const std::string& data, int level) {
     if (level < 0 || level > 9) {
         throw std::invalid_argument("Invalid zlib compression level: must be between 0 and 9");
+    }
+
+    // Issue #5: guard against sizes that exceed zlib's uInt (which is typically 32-bit).
+    if (data.size() > static_cast<std::size_t>(std::numeric_limits<uInt>::max())) {
+        throw std::runtime_error("Input data too large for zlib compression (exceeds uInt max)");
     }
 
     z_stream strm;
@@ -55,6 +61,11 @@ std::string decompress_data(const std::string& compressed_data) {
         throw std::runtime_error("Cannot decompress empty zlib payload");
     }
 
+    // Issue #5: guard against sizes that exceed zlib's uInt.
+    if (compressed_data.size() > static_cast<std::size_t>(std::numeric_limits<uInt>::max())) {
+        throw std::runtime_error("Compressed data too large for zlib decompression (exceeds uInt max)");
+    }
+
     z_stream strm;
     strm.zalloc = Z_NULL;
     strm.zfree = Z_NULL;
@@ -82,7 +93,17 @@ std::string decompress_data(const std::string& compressed_data) {
 
         std::size_t have = buffer.size() - strm.avail_out;
         decompressed.append(buffer.data(), have);
+        if (ret == Z_STREAM_END) {
+            break;
+        }
     } while (strm.avail_out == 0);
+
+    // Issue #6: at stream end, avail_in must be 0 and total_in must match the input size.
+    // Any remaining bytes indicate trailing data appended after the legitimate zlib stream.
+    if (ret == Z_STREAM_END && (strm.avail_in != 0 || strm.total_in != compressed_data.size())) {
+        inflateEnd(&strm);
+        throw std::runtime_error("zlib inflate: trailing data after end of compressed stream");
+    }
 
     inflateEnd(&strm);
 

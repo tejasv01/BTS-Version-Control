@@ -71,8 +71,12 @@ std::string sha256(const std::string& data) {
 }
 
 std::string hex_to_raw(const std::string& hex) {
-    if (hex.size() % 2 != 0) {
-        throw std::invalid_argument("Hex string must have an even length");
+    // Issue #7: when used for SHA-256 object hashes, require exactly 64 hex characters.
+    // We enforce this here because hex_to_raw is only called for SHA-256 digests in bts.
+    if (hex.size() != 64) {
+        throw std::invalid_argument(
+            "hex_to_raw requires exactly 64 hex characters (SHA-256); got " +
+            std::to_string(hex.size()));
     }
 
     auto parse_nibble = [](char c) -> unsigned char {

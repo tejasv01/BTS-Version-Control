@@ -39,14 +39,23 @@ TEST(HashTest, RawHashAndConversionRoundTrip) {
 }
 
 TEST(HashTest, HexToRawValidation) {
-    EXPECT_THROW(hex_to_raw("abc"), std::invalid_argument);
-    EXPECT_THROW(hex_to_raw("zz"), std::invalid_argument);
+    // Issue #7: hex_to_raw now requires exactly 64 hex characters (SHA-256).
+    EXPECT_THROW(hex_to_raw("abc"), std::invalid_argument);        // odd length
+    EXPECT_THROW(hex_to_raw("abcd"), std::invalid_argument);       // valid hex but only 4 chars, not 64
+    EXPECT_THROW(hex_to_raw("zz"), std::invalid_argument);         // non-hex
 
-    std::string valid_hex = "0123456789abcdefABCDEF1234567890abcdef1234567890abcdef1234567890";
+    // Exactly 64 valid hex chars — should succeed.
+    std::string valid_hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    ASSERT_EQ(valid_hex.size(), 64u);
     EXPECT_NO_THROW({
         std::string raw = hex_to_raw(valid_hex);
         EXPECT_EQ(raw.size(), 32u);
     });
+
+    // 63 chars — must fail.
+    EXPECT_THROW(hex_to_raw(valid_hex.substr(0, 63)), std::invalid_argument);
+    // 65 chars — must fail.
+    EXPECT_THROW(hex_to_raw(valid_hex + "0"), std::invalid_argument);
 }
 
 TEST(HashTest, IsValidSha256Hex) {

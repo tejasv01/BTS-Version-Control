@@ -65,5 +65,18 @@ TEST(CompressTest, InvalidCompressionLevelThrows) {
     EXPECT_THROW(compress_data("test", 10), std::invalid_argument);
 }
 
+// Issue #6: trailing data after the legitimate zlib stream must be rejected.
+TEST(CompressTest, TrailingDataAfterStreamRejected) {
+    std::string data = "some valid data to compress";
+    std::string valid_compressed = compress_data(data, 1);
+    // Append garbage bytes after the valid zlib stream using explicit length or non-null prefix
+    std::string with_trailing = valid_compressed;
+    with_trailing.append("\x00\x01\x02\x03trailing", 12);
+    EXPECT_THROW(decompress_data(with_trailing), std::runtime_error);
+
+    std::string with_trailing_text = valid_compressed + "extra_garbage";
+    EXPECT_THROW(decompress_data(with_trailing_text), std::runtime_error);
+}
+
 } // namespace
 } // namespace bts

@@ -2,16 +2,17 @@
 #include "compress.hpp"
 #include "hash.hpp"
 
-#include <chrono>
+#include <array>
 #include <cstdio>
 #include <fstream>
-#include <iostream>
 #include <random>
+#include <stdexcept>
 
 #if defined(_WIN32)
 #include <io.h>
 #include <windows.h>
 #else
+#include <fcntl.h>
 #include <unistd.h>
 #endif
 
@@ -19,21 +20,38 @@ namespace bts {
 
 namespace {
 
-void sync_file(FILE* fp) {
+// Returns true on success; throws StorageException on flush or sync failure.
+// Issue #8: propagate fflush / fsync / _commit failures instead of silently swallowing them.
+void sync_file(FILE* fp, const std::string& path_hint) {
     if (!fp) return;
-    fflush(fp);
+    if (fflush(fp) != 0) {
+        throw StorageException("fflush failed for temporary object file: " + path_hint);
+    }
 #if defined(_WIN32)
     int fd = _fileno(fp);
-    if (fd >= 0) {
-        _commit(fd);
+    if (fd >= 0 && _commit(fd) != 0) {
+        throw StorageException("_commit (fsync) failed for temporary object file: " + path_hint);
     }
 #else
     int fd = fileno(fp);
-    if (fd >= 0) {
-        fsync(fd);
+    if (fd >= 0 && fsync(fd) != 0) {
+        throw StorageException("fsync failed for temporary object file: " + path_hint);
     }
 #endif
 }
+
+// Issue #11: fsync the parent directory after rename so the new directory
+// entry is durable. POSIX-only; on Windows, MoveFileExW with
+// MOVEFILE_WRITE_THROUGH provides equivalent durability.
+#if !defined(_WIN32)
+void sync_directory(const std::filesystem::path& dir_path) {
+    int fd = open(dir_path.c_str(), O_RDONLY);
+    if (fd >= 0) {
+        fsync(fd);
+        close(fd);
+    }
+}
+#endif
 
 struct TempFileRemover {
     std::filesystem::path path;
@@ -75,8 +93,9 @@ ObjectType string_to_object_type(const std::string& type_str) {
 }
 
 std::filesystem::path get_object_path(const std::string& repo_root, const std::string& hash) {
-    if (hash.size() < 2) {
-        throw std::invalid_argument("Object hash too short to form path: " + hash);
+    // Issue #9: validate the full 64-char SHA-256 hex format, not just length >= 2.
+    if (!is_valid_sha256_hex(hash)) {
+        throw std::invalid_argument("Invalid SHA-256 hash for object path: '" + hash + "'");
     }
     std::string dir_name = hash.substr(0, 2);
     std::string file_name = hash.substr(2);
@@ -124,12 +143,23 @@ std::string write_object(const std::string& repo_root, ObjectType type, const st
     }
 
     // Atomic write pattern:
-    // 1. Write compressed payload to a temporary file in the same directory.
-    // 2. Flush and sync (fsync / _commit) to disk.
-    // 3. Close the file.
-    // 4. Atomically rename the temporary file to the final object path.
-    auto now_epoch = std::chrono::steady_clock::now().time_since_epoch().count();
-    std::string temp_filename = ".tmp_" + std::to_string(now_epoch) + "_" + hash.substr(2, 8);
+    // 1. Write compressed payload to a uniquely-named temporary file in the same directory.
+    // 2. Flush and fsync the file to disk (propagating errors).
+    // 3. Close the file, set read-only permissions.
+    // 4. Atomically rename (with write-through on Windows) to the final object path.
+    // 5. fsync the parent directory (POSIX) so the new directory entry is durable.
+
+    // Issue #1: use PID + cryptographically seeded random 32-bit value for temp filename
+    // uniqueness instead of steady_clock alone (which can collide under high concurrency).
+#if defined(_WIN32)
+    unsigned long pid = static_cast<unsigned long>(GetCurrentProcessId());
+#else
+    unsigned long pid = static_cast<unsigned long>(getpid());
+#endif
+    std::random_device rd;
+    std::mt19937 rng(rd());
+    std::uniform_int_distribution<uint32_t> dist;
+    std::string temp_filename = ".tmp_" + std::to_string(pid) + "_" + std::to_string(dist(rng)) + "_" + hash.substr(2, 8);
     std::filesystem::path temp_path = target_dir / temp_filename;
 
     TempFileRemover cleaner{temp_path, false};
@@ -155,31 +185,56 @@ std::string write_object(const std::string& repo_root, ObjectType type, const st
         throw StorageException("Failed to complete write to temporary object file: " + temp_path.string());
     }
 
-    sync_file(fp);
+    // Issue #8: sync_file now propagates errors; must call before fclose.
+    sync_file(fp, temp_path.string());
     fclose(fp);
 
-    // Set permission mode to 0444 (read-only for owner, group, others) per SR-1
+    // Issue #10: check permissions() error before rename; a failure here means
+    // the object would be written without the intended immutability guarantee.
     std::filesystem::permissions(
         temp_path,
         std::filesystem::perms::owner_read | std::filesystem::perms::group_read | std::filesystem::perms::others_read,
         std::filesystem::perm_options::replace,
         ec
     );
+    if (ec) {
+        throw StorageException("Failed to set read-only permissions on temporary object file: " + ec.message());
+    }
 
-    // Atomically rename over the target path
+    // Issues #2 & #11: use a write-through rename on Windows (MoveFileExW with
+    // MOVEFILE_WRITE_THROUGH) for durability. On POSIX, follow with a directory fsync.
+#if defined(_WIN32)
+    bool rename_ok = ::MoveFileExW(
+        temp_path.wstring().c_str(),
+        target_path.wstring().c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+    );
+    if (!rename_ok) {
+        // If target already exists (concurrent write), that's fine.
+        std::error_code check_ec;
+        if (!std::filesystem::exists(target_path, check_ec)) {
+            throw StorageException("MoveFileExW failed to rename temporary object file (error " +
+                                   std::to_string(::GetLastError()) + ")");
+        }
+        // Target exists; our write was redundant — let TempFileRemover clean up.
+        return hash;
+    }
+#else
+    // Atomically rename over the target path.
     std::filesystem::rename(temp_path, target_path, ec);
     if (ec) {
-        // If target was created concurrently by another process or write, check if target exists
         std::error_code check_ec;
         if (std::filesystem::exists(target_path, check_ec)) {
-            // Target exists, our write was redundant
-            cleaner.committed = false; // let destructor remove temp file
+            // Target exists from a concurrent write; our write was redundant.
             return hash;
         }
         throw StorageException("Failed to rename temporary object file to destination: " + ec.message());
     }
+    // Issue #11: fsync the parent directory so the new directory entry survives a crash.
+    sync_directory(target_dir);
+#endif
 
-    // Ensure permissions are set on target_path
+    // Ensure final permissions are set on the target path (Windows rename may not preserve them).
     std::filesystem::permissions(
         target_path,
         std::filesystem::perms::owner_read | std::filesystem::perms::group_read | std::filesystem::perms::others_read,
