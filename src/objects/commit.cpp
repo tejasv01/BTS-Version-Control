@@ -114,8 +114,13 @@ Commit Commit::deserialize(const std::string& data) {
             std::string time_part = trim_spaces(author_line.substr(last_angle + 1));
             std::size_t space_time = time_part.find(' ');
             if (space_time == std::string::npos) {
+                // Issue #3: reject trailing characters in the fallback (no-timezone) epoch field.
                 try {
-                    commit.timestamp = std::stoll(time_part);
+                    std::size_t idx = 0;
+                    commit.timestamp = std::stoll(time_part, &idx);
+                    if (idx != time_part.size()) {
+                        throw std::invalid_argument("trailing characters in epoch");
+                    }
                     commit.timezone = "+0000";
                 } catch (const std::exception&) {
                     throw CorruptObjectException("Invalid timestamp in commit author header: " + time_part);
@@ -123,8 +128,13 @@ Commit Commit::deserialize(const std::string& data) {
             } else {
                 std::string epoch_str = time_part.substr(0, space_time);
                 std::string tz_str = trim_spaces(time_part.substr(space_time + 1));
+                // Issue #4: reject trailing characters in the timezone-bearing epoch field.
                 try {
-                    commit.timestamp = std::stoll(epoch_str);
+                    std::size_t idx = 0;
+                    commit.timestamp = std::stoll(epoch_str, &idx);
+                    if (idx != epoch_str.size()) {
+                        throw std::invalid_argument("trailing characters in epoch");
+                    }
                 } catch (const std::exception&) {
                     throw CorruptObjectException("Invalid timestamp in commit author header: " + epoch_str);
                 }

@@ -77,5 +77,24 @@ TEST(CommitTest, MalformedCommitThrows) {
     EXPECT_THROW(Commit::deserialize("tree " + sha256("t") + "\n\nmessage"), CorruptObjectException);
 }
 
+// Issues #3 & #4: epoch fields with trailing characters must be rejected.
+TEST(CommitTest, TrailingCharsInEpochRejected) {
+    std::string tree = sha256("some tree");
+
+    // No-timezone path: "1763000000x" should fail.
+    std::string bad_no_tz =
+        "tree " + tree + "\n"
+        "author A <a@b.com> 1763000000x\n"
+        "\nmessage\n";
+    EXPECT_THROW(Commit::deserialize(bad_no_tz), CorruptObjectException);
+
+    // With-timezone path: "1763000000x +0530" should fail.
+    std::string bad_with_tz =
+        "tree " + tree + "\n"
+        "author A <a@b.com> 1763000000x +0530\n"
+        "\nmessage\n";
+    EXPECT_THROW(Commit::deserialize(bad_with_tz), CorruptObjectException);
+}
+
 } // namespace
 } // namespace bts
