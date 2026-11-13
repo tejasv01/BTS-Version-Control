@@ -19,6 +19,8 @@ add_library(bts_lib STATIC
     src/core/object_store_stub.cpp
     src/core/index_stub.cpp
     src/core/refs.cpp
+    src/commands/branch.cpp
+    src/commands/checkout.cpp
 )
 
 target_include_directories(bts_lib PUBLIC
@@ -47,4 +49,6 @@ function(bts_add_test TEST_NAME TEST_SOURCE)
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endfunction()
 
-bts_add_test(test_refs tests/test_refs.cpp)
+bts_add_test(test_refs     tests/test_refs.cpp)
+bts_add_test(test_branch   tests/test_branch.cpp)
+bts_add_test(test_checkout tests/test_checkout.cpp)
