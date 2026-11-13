@@ -134,3 +134,80 @@ TEST_F(CliTest, Cli_BranchInRepo) {
     char* br_argv[] = {const_cast<char*>("bts"), const_cast<char*>("branch")};
     EXPECT_EQ(bts::cli_main(2, br_argv), 0);
 }
+
+// ─── Subdirectory repo discovery (REQ-ERR-1) ─────────────────────────────────
+
+TEST_F(CliTest, Cli_FindsRepoFromSubdirectory) {
+    char* init_argv[] = {const_cast<char*>("bts"), const_cast<char*>("init")};
+    ASSERT_EQ(bts::cli_main(2, init_argv), 0);
+
+    fs::path nested = temp_dir_ / "src" / "deep" / "module";
+    fs::create_directories(nested);
+    fs::current_path(nested);
+
+    testing::internal::CaptureStdout();
+    char* st_argv[] = {const_cast<char*>("bts"), const_cast<char*>("status")};
+    int rc = bts::cli_main(2, st_argv);
+    std::string out = testing::internal::GetCapturedStdout();
+
+    EXPECT_EQ(rc, 0);
+    EXPECT_NE(out.find("On branch main"), std::string::npos);
+}
+
+// ─── Argument validation (REQ-ERR-2) & exit code 1 errors (REQ-ERR-4) ────────
+
+TEST_F(CliTest, Cli_MalformedFlagsAndExtraArgsExit2) {
+    char* init_argv[] = {const_cast<char*>("bts"), const_cast<char*>("init")};
+    ASSERT_EQ(bts::cli_main(2, init_argv), 0);
+
+    {
+        testing::internal::CaptureStderr();
+        char* argv[] = {const_cast<char*>("bts"), const_cast<char*>("log"),
+                        const_cast<char*>("--bogus")};
+        EXPECT_EQ(bts::cli_main(3, argv), 2);
+        EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
+    }
+    {
+        testing::internal::CaptureStderr();
+        char* argv[] = {const_cast<char*>("bts"), const_cast<char*>("commit"),
+                        const_cast<char*>("-m")};
+        EXPECT_EQ(bts::cli_main(3, argv), 2);
+        EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
+    }
+    {
+        testing::internal::CaptureStderr();
+        char* argv[] = {const_cast<char*>("bts"), const_cast<char*>("commit"),
+                        const_cast<char*>("-m"), const_cast<char*>("msg"),
+                        const_cast<char*>("--unknown")};
+        EXPECT_EQ(bts::cli_main(5, argv), 2);
+        EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
+    }
+    {
+        testing::internal::CaptureStderr();
+        char* argv[] = {const_cast<char*>("bts"), const_cast<char*>("status"),
+                        const_cast<char*>("unexpected")};
+        EXPECT_EQ(bts::cli_main(3, argv), 2);
+        EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
+    }
+    {
+        testing::internal::CaptureStderr();
+        char* argv[] = {const_cast<char*>("bts"), const_cast<char*>("branch"),
+                        const_cast<char*>("-d")};
+        EXPECT_EQ(bts::cli_main(3, argv), 2);
+        EXPECT_FALSE(testing::internal::GetCapturedStderr().empty());
+    }
+}
+
+TEST_F(CliTest, Cli_OperationFailureExits1) {
+    char* init_argv[] = {const_cast<char*>("bts"), const_cast<char*>("init")};
+    ASSERT_EQ(bts::cli_main(2, init_argv), 0);
+
+    testing::internal::CaptureStderr();
+    char* add_argv[] = {const_cast<char*>("bts"), const_cast<char*>("add"),
+                        const_cast<char*>("missing_file.txt")};
+    int rc = bts::cli_main(3, add_argv);
+    std::string err = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(rc, 1);
+    EXPECT_FALSE(err.empty());
+}

@@ -10,8 +10,6 @@
 
 namespace bts {
 
-namespace {
-
 /// Find the shortest unique prefix for `hash` among `all_hashes`,
 /// with a minimum length of 7.
 std::string abbreviate_hash(const std::string& hash,
@@ -31,6 +29,8 @@ std::string abbreviate_hash(const std::string& hash,
     }
     return hash;  // full hash if never unique (shouldn't happen)
 }
+
+namespace {
 
 /// Get the first line of a multi-line string.
 std::string first_line(const std::string& s) {

@@ -3,7 +3,7 @@
 ## BTS: A Lightweight Version Control System
 
 **Version 0.3 · November 2026**
-**Authors:** Bharat, Tejasv Lata, Sarthak
+**Authors:** Bharat, Tejasv, Sarthak
 
 Priority key: **E** = Essential, **D** = Desirable, **O** = Optional.
 
@@ -13,9 +13,9 @@ Priority key: **E** = Essential, **D** = Desirable, **O** = Optional.
 
 | Version | Date | Author(s) | Description |
 |---|---|---|---|
-| 0.1 | Nov 2026 | Bharat, Tejasv Lata, Sarthak | Initial draft |
-| 0.2 | Nov 2026 | Bharat, Tejasv Lata, Sarthak | Added priorities, error and configuration requirements, edge cases, full traceability matrix, appendices |
-| 0.3 | Nov 2026 | Bharat, Tejasv Lata, Sarthak | Added problem statement, use cases, detached-HEAD and unborn-branch behavior, resolved prefix length and performance targets, aligned versioning requirement with formats, consolidated into one document |
+| 0.1 | Nov 2026 | Bharat, Tejasv, Sarthak | Initial draft |
+| 0.2 | Nov 2026 | Bharat, Tejasv, Sarthak | Added priorities, error and configuration requirements, edge cases, full traceability matrix, appendices |
+| 0.3 | Nov 2026 | Bharat, Tejasv, Sarthak | Added problem statement, use cases, detached-HEAD and unborn-branch behavior, resolved prefix length and performance targets, aligned versioning requirement with formats, consolidated into one document |
 
 ---
 
@@ -295,8 +295,8 @@ A name that matches both a branch and a commit prefix shall be resolved as the b
 
 | ID | Requirement | Pri. | Rationale |
 |---|---|---|---|
-| PR-1 | On a reference machine (to be stated in the test report: CPU model, core count, RAM, SSD model, OS version, warm filesystem cache), staging and committing 1,000 files totalling under 50 MB shall complete within **3 seconds** at zlib level 1. | D | A single-core 2.1 GHz Xeon measured about 0.7 s at level 1 (1,000 files, 47.5 MB), so 3 s leaves margin. **Provisional until confirmed on the team's own machine.** |
-| PR-2 | On the same reference machine, `bts status` on a clean repository of up to 5,000 files shall complete within **200 ms**, relying on the stat cache per REQ-STAT-2. | D | **Provisional until confirmed by benchmark.** |
+| PR-1 | On a reference machine (to be stated in the test report: CPU model, core count, RAM, OS version, warm filesystem cache), staging and committing 1,000 files totalling under 50 MB shall complete within **3 seconds** at zlib level 1. | D | Confirmed: Release 3-trial benchmark measured **0.232 s** median (`0.244 s` max, `1,000` files, `19.53 MiB`) on Apple M5 Pro (`arm64`, 15 cores, 48.0 GB RAM, macOS 27.0). See [test-plan-and-report.md](test-plan-and-report.md). |
+| PR-2 | On the same reference machine, `bts status` on a clean repository of up to 5,000 files shall complete within **200 ms**, relying on the stat cache per REQ-STAT-2. | D | Confirmed: Release 3-trial benchmark measured **40.3 ms** median (`40.6 ms` max, `5,000` clean files, `0` blob re-hashes) on the same reference machine. See [test-plan-and-report.md](test-plan-and-report.md). |
 
 #### 3.3.2 Reliability
 
@@ -441,19 +441,19 @@ Entries shall be sorted by path in byte order. A footer mismatch is treated as a
 
 ## Appendix D: Companion Deliverables
 
-The following course deliverables accompany this SRS and shall reference its requirement IDs:
+The following course deliverables accompany this SRS and reference its requirement IDs:
 
-1. UML models: use-case, class, sequence (commit, checkout), activity, and state (HEAD) diagrams
-2. Architecture and design document: modules, responsibilities, and design decisions
-3. Test plan and test cases derived from Section 4
-4. Project plan: milestones, member responsibilities, and schedule
-5. Source code, build instructions, and test report including the reference-machine details for PR-1 and PR-2
+1. Requirement analysis, stakeholder matrix, and use-case specifications: [requirement-analysis.md](requirement-analysis.md)
+2. Architecture, ADRs, SQA design mapping, and UML models (use-case, class, sequence, activity, state): [architecture.md](architecture.md)
+3. Test plan, traceability matrix, build instructions, and verified CTest + benchmark report (`PR-1`, `PR-2`): [test-plan-and-report.md](test-plan-and-report.md)
+4. Project plan, team RACI responsibilities, milestone schedule, and risk register: [project-plan.md](project-plan.md)
+5. Post-deployment software maintenance and evolution guide (ISO/IEC 14764): [maintenance.md](maintenance.md)
 
 ## Appendix E: Open Items
 
 | # | Item | Status |
 |---|---|---|
-| 1 | PR-1 and PR-2 targets (3 s, 200 ms) | Provisional. Benchmark on the team's machine, then confirm or adjust. |
+| 1 | PR-1 and PR-2 targets (3 s, 200 ms) | Done. Confirmed via `scripts/benchmark.py` 3-trial Release run (`0.232 s` / `40.3 ms` median; see [test-plan-and-report.md](test-plan-and-report.md)). |
 | 2 | Implementation language | Done. C++17, CMake, zlib, OpenSSL libcrypto, GoogleTest. |
 | 3 | Hash prefix length | Done. 4 characters minimum for checkout input, 7 default for output. |
 | 4 | Organization of Section 3.2 | Done. Organized by feature with use cases mapped in 3.2.1. |

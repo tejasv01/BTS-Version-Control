@@ -159,3 +159,29 @@ TEST_F(LogTest, Log_Detached) {
     EXPECT_NE(out.find(c1.substr(0, 7)), std::string::npos);
     EXPECT_EQ(out.find(c2.substr(0, 7)), std::string::npos);
 }
+
+// ─── Hash abbreviation & collision lengthening (REQ-LOG-3) ───────────────────
+
+TEST(LogAbbrevTest, AbbreviateHash_MinimumSevenCharsWhenUnique) {
+    std::string h1 =
+        "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    std::string h2 =
+        "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    EXPECT_EQ(bts::abbreviate_hash(h1, {h1, h2}), "1111111");
+    EXPECT_EQ(bts::abbreviate_hash(h2, {h1, h2}), "2222222");
+}
+
+TEST(LogAbbrevTest, AbbreviateHash_LengthensOnPrefixCollision) {
+    std::string base(64, 'a');
+    std::string match7 = base;
+    match7[7] = 'b';  // shares 7-char prefix "aaaaaaa"
+
+    EXPECT_EQ(bts::abbreviate_hash(base, {base, match7}),
+              base.substr(0, 8));
+
+    std::string match10 = base;
+    match10[10] = 'c';  // shares 10-char prefix "aaaaaaaaaa"
+
+    EXPECT_EQ(bts::abbreviate_hash(base, {base, match7, match10}),
+              base.substr(0, 11));
+}

@@ -37,9 +37,9 @@ int cmd_branch(const fs::path& repo, int argc, const char* const* argv) {
 
     // ── Delete branch: -d <name> (REQ-BRN-3) ────────────────────────────────
     if (first_arg == "-d") {
-        if (argc < 2) {
-            std::cerr << "error: branch name required after '-d'" << std::endl;
-            return 1;
+        if (argc != 2) {
+            std::cerr << "usage: bts branch -d <name>" << std::endl;
+            return 2;
         }
         std::string name = argv[1];
 
@@ -69,6 +69,17 @@ int cmd_branch(const fs::path& repo, int argc, const char* const* argv) {
 
         std::cout << "Deleted branch " << name << std::endl;
         return 0;
+    }
+
+    if (!first_arg.empty() && first_arg[0] == '-') {
+        std::cerr << "error: unknown option '" << first_arg
+                  << "'\nusage: bts branch [<name>] | -d <name>" << std::endl;
+        return 2;
+    }
+
+    if (argc > 1) {
+        std::cerr << "usage: bts branch [<name>]" << std::endl;
+        return 2;
     }
 
     // ── Create branch: <name> (REQ-BRN-2) ───────────────────────────────────

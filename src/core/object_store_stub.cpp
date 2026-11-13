@@ -1,20 +1,22 @@
-// TODO(Bharat): replace when merged – stub implementation for Object Storage
-// Owner: Bharat (Storage Engine & Object Model)
-//
-// This is a minimal stub so Sarthak's modules can compile and link.
-// Uses FNV-1a expanded to 64 hex chars instead of SHA-256.
-// Objects stored uncompressed (real version uses zlib).
+// Object Store Implementation (backed by SHA-256 + zlib level 1)
+// Based on interface in bts/object_store.h and storage primitives from src/storage/
 
 #include "bts/object_store.h"
+#include "../storage/compress.hpp"
+#include "../storage/hash.hpp"
+
+#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <random>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -120,7 +122,11 @@ std::optional<std::string> get_config(const fs::path& repo,
 
 int cmd_config(const fs::path& repo, const std::string& key,
                const std::string& value, bool set_mode) {
-    if (!is_valid_config_key(key)) return 2;
+    if (!is_valid_config_key(key)) {
+        std::cerr << "error: unsupported config key '" << key
+                  << "'. Supported keys: user.name, user.email\n";
+        return 2;
+    }
 
     if (set_mode) {
         auto cfg = load_config(repo);
@@ -129,42 +135,22 @@ int cmd_config(const fs::path& repo, const std::string& key,
         return 0;
     } else {
         auto val = get_config(repo, key);
-        if (!val) return 1;
+        if (!val) {
+            std::cerr << "error: config key '" << key << "' is not set\n";
+            return 1;
+        }
         std::cout << *val << "\n";
         return 0;
     }
 }
 
-// ─── Hashing (FNV-1a stub producing 64 hex chars) ──────────────────────────
+// ─── Hashing (OpenSSL SHA-256) ──────────────────────────────────────────────
 
 std::string hash_content(const std::string& data) {
-    // FNV-1a 64-bit, then repeat/extend to fill 32 bytes (64 hex chars)
-    const uint64_t FNV_OFFSET = 14695981039346656037ULL;
-    const uint64_t FNV_PRIME  = 1099511628211ULL;
-
-    // Compute 4 independent FNV-1a hashes with different seeds to fill 32 bytes
-    uint64_t hashes[4];
-    for (int i = 0; i < 4; ++i) {
-        uint64_t h = FNV_OFFSET ^ static_cast<uint64_t>(i * 0x9E3779B97F4A7C15ULL);
-        for (unsigned char c : data) {
-            h ^= c;
-            h *= FNV_PRIME;
-        }
-        // Mix in length with different multiplier per round
-        h ^= static_cast<uint64_t>(data.size()) * (static_cast<uint64_t>(i) + 1);
-        h *= FNV_PRIME;
-        hashes[i] = h;
-    }
-
-    std::ostringstream oss;
-    oss << std::hex << std::setfill('0');
-    for (int i = 0; i < 4; ++i) {
-        oss << std::setw(16) << hashes[i];
-    }
-    return oss.str();
+    return sha256(data);
 }
 
-// ─── Object read/write ──────────────────────────────────────────────────────
+// ─── Object read/write (zlib level 1 + SHA-256 integrity) ───────────────────
 
 static fs::path object_path(const fs::path& repo, const std::string& hash) {
     return bts_dir(repo) / "objects" / hash.substr(0, 2) / hash.substr(2);
@@ -181,55 +167,93 @@ std::string write_object(const fs::path& repo, ObjectType type,
     store_data += '\0';
     store_data += data;
 
-    std::string hash = hash_content(store_data);
+    std::string hash = sha256(store_data);
     fs::path path = object_path(repo, hash);
 
-    if (fs::exists(path)) {
-        return hash;  // already stored
-    }
-
-    fs::create_directories(path.parent_path());
-    {
-        std::ofstream out(path, std::ios::binary);
-        out.write(store_data.data(),
-                  static_cast<std::streamsize>(store_data.size()));
-    }
-
-    // Set read-only
     std::error_code ec;
-    fs::permissions(path,
-                    fs::perms::owner_read | fs::perms::group_read
-                        | fs::perms::others_read,
+    if (fs::exists(path, ec)) {
+        return hash;  // already stored (SR-1, REQ-ADD-1)
+    }
+
+    fs::path parent = path.parent_path();
+    fs::create_directories(parent, ec);
+
+    std::string compressed = compress_data(store_data, 1);
+
+    std::random_device rd;
+    std::mt19937 rng(rd());
+    std::uniform_int_distribution<uint32_t> dist;
+    fs::path temp_path = parent / (".tmp_" + std::to_string(::getpid()) + "_" +
+                                   std::to_string(dist(rng)) + "_" + hash.substr(2, 8));
+
+    FILE* fp = std::fopen(temp_path.c_str(), "wb");
+    if (!fp) {
+        throw std::runtime_error("Failed to create temporary object file: " + temp_path.string());
+    }
+    std::size_t written = std::fwrite(compressed.data(), 1, compressed.size(), fp);
+    if (written != compressed.size() || std::fflush(fp) != 0 || ::fsync(fileno(fp)) != 0) {
+        std::fclose(fp);
+        fs::remove(temp_path, ec);
+        throw std::runtime_error("Failed to write object file: " + temp_path.string());
+    }
+    std::fclose(fp);
+
+    fs::permissions(temp_path,
+                    fs::perms::owner_read | fs::perms::group_read | fs::perms::others_read,
                     fs::perm_options::replace, ec);
+    fs::rename(temp_path, path, ec);
+    if (ec) {
+        if (!fs::exists(path, ec)) {
+            fs::remove(temp_path, ec);
+            throw std::runtime_error("Failed to finalize object file: " + ec.message());
+        }
+        fs::remove(temp_path, ec);
+    }
 
     return hash;
 }
 
 std::optional<std::string> read_object(const fs::path& repo,
                                        const std::string& hash) {
-    fs::path path = object_path(repo, hash);
-    if (!fs::exists(path)) return std::nullopt;
+    auto raw = read_object_raw(repo, hash);
+    if (!raw.has_value()) return std::nullopt;
 
-    std::ifstream in(path, std::ios::binary);
-    std::string content((std::istreambuf_iterator<char>(in)),
-                        std::istreambuf_iterator<char>());
+    auto nul = raw->find('\0');
+    if (nul == std::string::npos) {
+        throw IntegrityException(hash, "", "fatal: object " + hash + " has malformed header");
+    }
 
-    // Find the null byte separating header from payload
-    auto nul = content.find('\0');
-    if (nul == std::string::npos) return std::nullopt;
-
-    return content.substr(nul + 1);
+    return raw->substr(nul + 1);
 }
 
 std::optional<std::string> read_object_raw(const fs::path& repo,
                                            const std::string& hash) {
+    if (!is_valid_sha256_hex(hash)) return std::nullopt;
+
     fs::path path = object_path(repo, hash);
-    if (!fs::exists(path)) return std::nullopt;
+    std::error_code ec;
+    if (!fs::exists(path, ec)) return std::nullopt;
 
     std::ifstream in(path, std::ios::binary);
-    std::string content((std::istreambuf_iterator<char>(in)),
-                        std::istreambuf_iterator<char>());
-    return content;
+    if (!in.is_open()) return std::nullopt;
+    std::string compressed((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
+
+    std::string decompressed;
+    try {
+        decompressed = decompress_data(compressed);
+    } catch (const std::exception& e) {
+        throw IntegrityException(
+            hash, "",
+            "fatal: integrity error: object " + hash + " is corrupt (" + e.what() + ")");
+    }
+
+    std::string actual_hash = sha256(decompressed);
+    if (actual_hash != hash) {
+        throw IntegrityException(hash, actual_hash);
+    }
+
+    return decompressed;
 }
 
 // ─── Parse commit ───────────────────────────────────────────────────────────
@@ -329,17 +353,6 @@ std::vector<TreeEntry> parse_tree(const std::string& raw) {
 
 // ─── Write tree ─────────────────────────────────────────────────────────────
 
-static std::string hex_to_raw(const std::string& hex) {
-    std::string raw;
-    raw.reserve(hex.size() / 2);
-    for (size_t i = 0; i + 1 < hex.size(); i += 2) {
-        unsigned byte = 0;
-        std::istringstream(hex.substr(i, 2)) >> std::hex >> byte;
-        raw += static_cast<char>(byte);
-    }
-    return raw;
-}
-
 std::string write_tree(const fs::path& repo,
                        const std::vector<TreeEntry>& entries) {
     // Sort entries by name
@@ -379,9 +392,8 @@ std::string write_commit(const fs::path& repo, const std::string& tree_hash,
         oss << "parent " << p << "\n";
     }
     oss << "author " << author << " " << epoch << " +0000\n";
-    oss << "committer " << author << " " << epoch << " +0000\n";
     oss << "\n";
-    oss << message << "\n";
+    oss << message;
 
     return write_object(repo, ObjectType::Commit, oss.str());
 }
@@ -402,7 +414,7 @@ std::vector<std::string> resolve_hash_prefix(const fs::path& repo,
 
     for (auto& entry : fs::directory_iterator(bucket)) {
         std::string fname = entry.path().filename().string();
-        if (fname.rfind(file_prefix, 0) == 0) {
+        if (fname.size() == 62 && fname.rfind(file_prefix, 0) == 0) {
             matches.push_back(dir_prefix + fname);
         }
     }

@@ -60,12 +60,17 @@ int cli_main(int argc, char* argv[]) {
 
     // ── init: does NOT require find_repo_root ────────────────────────────
     if (command == "init") {
-        if (argc >= 3 && std::string(argv[2]) == "--help") {
+        if (argc == 3 && std::string(argv[2]) == "--help") {
             std::cout << "usage: bts init [<directory>]" << std::endl;
             return 0;
         }
+        if (argc > 3 ||
+            (argc == 3 && !std::string(argv[2]).empty() && argv[2][0] == '-')) {
+            std::cerr << "usage: bts init [<directory>]" << std::endl;
+            return 2;
+        }
         fs::path target = fs::current_path();
-        if (argc >= 3) {
+        if (argc == 3) {
             target = argv[2];
         }
         return cmd_init(target);
@@ -81,121 +86,159 @@ int cli_main(int argc, char* argv[]) {
     }
     fs::path repo = repo_opt.value();
 
-    // ── config ───────────────────────────────────────────────────────────
-    if (command == "config") {
-        if (argc >= 3 && std::string(argv[2]) == "--help") {
-            std::cout << "usage: bts config <key> [<value>]" << std::endl;
-            return 0;
-        }
-        if (argc < 3) {
-            std::cerr << "usage: bts config <key> [<value>]" << std::endl;
-            return 2;
-        }
-        std::string key = argv[2];
-        if (argc >= 4) {
-            // Set mode
-            std::string value = argv[3];
-            return cmd_config(repo, key, value, true);
-        } else {
-            // Get mode
-            return cmd_config(repo, key, "", false);
-        }
-    }
-
-    // ── add ──────────────────────────────────────────────────────────────
-    if (command == "add") {
-        if (argc >= 3 && std::string(argv[2]) == "--help") {
-            std::cout << "usage: bts add <path>..." << std::endl;
-            return 0;
-        }
-        if (argc < 3) {
-            std::cerr << "usage: bts add <path>..." << std::endl;
-            return 2;
-        }
-        std::vector<std::string> paths;
-        for (int i = 2; i < argc; ++i) {
-            paths.emplace_back(argv[i]);
-        }
-        return cmd_add(repo, paths);
-    }
-
-    // ── status ───────────────────────────────────────────────────────────
-    if (command == "status") {
-        if (argc >= 3 && std::string(argv[2]) == "--help") {
-            std::cout << "usage: bts status" << std::endl;
-            return 0;
-        }
-        return cmd_status(repo);
-    }
-
-    // ── commit ───────────────────────────────────────────────────────────
-    if (command == "commit") {
-        if (argc >= 3 && std::string(argv[2]) == "--help") {
-            std::cout << "usage: bts commit -m <message>" << std::endl;
-            return 0;
-        }
-        // Parse -m flag
-        std::string message;
-        bool found_m = false;
-        for (int i = 2; i < argc; ++i) {
-            if (std::string(argv[i]) == "-m" && i + 1 < argc) {
-                message = argv[i + 1];
-                found_m = true;
-                break;
+    try {
+        // ── config ───────────────────────────────────────────────────────
+        if (command == "config") {
+            if (argc == 3 && std::string(argv[2]) == "--help") {
+                std::cout << "usage: bts config <key> [<value>]" << std::endl;
+                return 0;
+            }
+            if (argc < 3 || argc > 4 ||
+                (!std::string(argv[2]).empty() && argv[2][0] == '-')) {
+                std::cerr << "usage: bts config <key> [<value>]" << std::endl;
+                return 2;
+            }
+            std::string key = argv[2];
+            if (argc == 4) {
+                // Set mode
+                std::string value = argv[3];
+                return cmd_config(repo, key, value, true);
+            } else {
+                // Get mode
+                return cmd_config(repo, key, "", false);
             }
         }
-        if (!found_m) {
-            std::cerr << "error: must provide commit message with -m"
-                      << std::endl;
-            return 2;
-        }
-        return cmd_commit(repo, message);
-    }
 
-    // ── log ──────────────────────────────────────────────────────────────
-    if (command == "log") {
-        if (argc >= 3 && std::string(argv[2]) == "--help") {
-            std::cout << "usage: bts log [--oneline]" << std::endl;
-            return 0;
-        }
-        bool oneline = false;
-        for (int i = 2; i < argc; ++i) {
-            if (std::string(argv[i]) == "--oneline") {
-                oneline = true;
+        // ── add ──────────────────────────────────────────────────────────
+        if (command == "add") {
+            if (argc == 3 && std::string(argv[2]) == "--help") {
+                std::cout << "usage: bts add <path>..." << std::endl;
+                return 0;
             }
+            if (argc < 3) {
+                std::cerr << "usage: bts add <path>..." << std::endl;
+                return 2;
+            }
+            std::vector<std::string> paths;
+            for (int i = 2; i < argc; ++i) {
+                std::string arg = argv[i];
+                if (!arg.empty() && arg[0] == '-') {
+                    std::cerr << "error: unknown option '" << arg
+                              << "'\nusage: bts add <path>..." << std::endl;
+                    return 2;
+                }
+                paths.emplace_back(std::move(arg));
+            }
+            return cmd_add(repo, paths);
         }
-        return cmd_log(repo, oneline);
-    }
 
-    // ── branch ───────────────────────────────────────────────────────────
-    if (command == "branch") {
-        // Pass remaining args (after "branch") to cmd_branch
-        int branch_argc = argc - 2;
-        const char* const* branch_argv =
-            (branch_argc > 0) ? &argv[2] : nullptr;
-        return cmd_branch(repo, branch_argc, branch_argv);
-    }
+        // ── status ───────────────────────────────────────────────────────
+        if (command == "status") {
+            if (argc == 3 && std::string(argv[2]) == "--help") {
+                std::cout << "usage: bts status" << std::endl;
+                return 0;
+            }
+            if (argc > 2) {
+                std::cerr << "usage: bts status" << std::endl;
+                return 2;
+            }
+            return cmd_status(repo);
+        }
 
-    // ── checkout ─────────────────────────────────────────────────────────
-    if (command == "checkout") {
-        if (argc >= 3 && std::string(argv[2]) == "--help") {
-            std::cout << "usage: bts checkout <branch|commit>" << std::endl;
-            return 0;
+        // ── commit ───────────────────────────────────────────────────────
+        if (command == "commit") {
+            if (argc == 3 && std::string(argv[2]) == "--help") {
+                std::cout << "usage: bts commit -m <message>" << std::endl;
+                return 0;
+            }
+            std::string message;
+            bool found_m = false;
+            for (int i = 2; i < argc; ++i) {
+                std::string arg = argv[i];
+                if (arg == "-m") {
+                    if (i + 1 >= argc || found_m) {
+                        std::cerr << "usage: bts commit -m <message>"
+                                  << std::endl;
+                        return 2;
+                    }
+                    message = argv[++i];
+                    found_m = true;
+                } else {
+                    std::cerr << "error: unknown option or argument '" << arg
+                              << "'\nusage: bts commit -m <message>"
+                              << std::endl;
+                    return 2;
+                }
+            }
+            if (!found_m) {
+                std::cerr << "error: must provide commit message with -m"
+                          << std::endl;
+                return 2;
+            }
+            return cmd_commit(repo, message);
         }
-        if (argc < 3) {
-            std::cerr << "usage: bts checkout <branch|commit>" << std::endl;
-            return 2;
-        }
-        return cmd_checkout(repo, argv[2]);
-    }
 
-    // ── diff ─────────────────────────────────────────────────────────────
-    if (command == "diff") {
-        if (argc >= 3 && std::string(argv[2]) == "--help") {
-            std::cout << "usage: bts diff" << std::endl;
-            return 0;
+        // ── log ──────────────────────────────────────────────────────────
+        if (command == "log") {
+            if (argc == 3 && std::string(argv[2]) == "--help") {
+                std::cout << "usage: bts log [--oneline]" << std::endl;
+                return 0;
+            }
+            bool oneline = false;
+            for (int i = 2; i < argc; ++i) {
+                std::string arg = argv[i];
+                if (arg == "--oneline") {
+                    oneline = true;
+                } else {
+                    std::cerr << "error: unknown option or argument '" << arg
+                              << "'\nusage: bts log [--oneline]" << std::endl;
+                    return 2;
+                }
+            }
+            return cmd_log(repo, oneline);
         }
-        return cmd_diff(repo);
+
+        // ── branch ───────────────────────────────────────────────────────
+        if (command == "branch") {
+            // Pass remaining args (after "branch") to cmd_branch
+            int branch_argc = argc - 2;
+            const char* const* branch_argv =
+                (branch_argc > 0) ? &argv[2] : nullptr;
+            return cmd_branch(repo, branch_argc, branch_argv);
+        }
+
+        // ── checkout ─────────────────────────────────────────────────────
+        if (command == "checkout") {
+            if (argc == 3 && std::string(argv[2]) == "--help") {
+                std::cout << "usage: bts checkout <branch|commit>" << std::endl;
+                return 0;
+            }
+            if (argc != 3 ||
+                (!std::string(argv[2]).empty() && argv[2][0] == '-')) {
+                std::cerr << "usage: bts checkout <branch|commit>" << std::endl;
+                return 2;
+            }
+            return cmd_checkout(repo, argv[2]);
+        }
+
+        // ── diff ─────────────────────────────────────────────────────────
+        if (command == "diff") {
+            if (argc == 3 && std::string(argv[2]) == "--help") {
+                std::cout << "usage: bts diff" << std::endl;
+                return 0;
+            }
+            if (argc > 2) {
+                std::cerr << "usage: bts diff" << std::endl;
+                return 2;
+            }
+            return cmd_diff(repo);
+        }
+    } catch (const IndexIntegrityException& e) {
+        std::cerr << e.what() << std::endl;
+        return 3;
+    } catch (const IntegrityException& e) {
+        std::cerr << e.what() << std::endl;
+        return 3;
     }
 
     // ── Unknown command ──────────────────────────────────────────────────

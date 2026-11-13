@@ -4,9 +4,10 @@ project(bts VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(APPLE)
-    list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew")
+    list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew" "/opt/homebrew/opt/openssl@3")
 endif()
 
 find_package(OpenSSL REQUIRED)
@@ -16,8 +17,11 @@ find_package(GTest REQUIRED)
 include_directories(${CMAKE_SOURCE_DIR}/src/include)
 
 add_library(bts_lib STATIC
+    src/storage/hash.cpp
+    src/storage/compress.cpp
     src/core/object_store_stub.cpp
-    src/core/index_stub.cpp
+    src/core/index.cpp
+    src/core/diff.cpp
     src/core/refs.cpp
     src/commands/branch.cpp
     src/commands/checkout.cpp
@@ -46,6 +50,7 @@ target_link_libraries(bts PRIVATE bts_lib)
 install(TARGETS bts DESTINATION bin)
 
 enable_testing()
+include(GoogleTest)
 
 function(bts_add_test TEST_NAME TEST_SOURCE)
     add_executable(${TEST_NAME} ${TEST_SOURCE})
@@ -56,8 +61,17 @@ function(bts_add_test TEST_NAME TEST_SOURCE)
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endfunction()
 
-bts_add_test(test_refs     tests/test_refs.cpp)
-bts_add_test(test_branch   tests/test_branch.cpp)
-bts_add_test(test_checkout tests/test_checkout.cpp)
-bts_add_test(test_log      tests/test_log.cpp)
-bts_add_test(test_cli      tests/test_cli.cpp)
+bts_add_test(test_refs               tests/test_refs.cpp)
+bts_add_test(test_branch             tests/test_branch.cpp)
+bts_add_test(test_checkout           tests/test_checkout.cpp)
+bts_add_test(test_log                tests/test_log.cpp)
+bts_add_test(test_cli                tests/test_cli.cpp)
+bts_add_test(test_index              tests/test_index.cpp)
+bts_add_test(test_diff               tests/test_diff.cpp)
+bts_add_test(test_add_status_commit  tests/test_add_status_commit.cpp)
+bts_add_test(test_system_e2e         tests/test_system_e2e.cpp)
+
+add_subdirectory(src/storage)
+add_subdirectory(src/objects)
+add_subdirectory(tests/storage)
+add_subdirectory(tests/objects)

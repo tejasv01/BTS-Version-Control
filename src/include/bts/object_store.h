@@ -14,12 +14,36 @@
 #include <map>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace bts {
 
 namespace fs = std::filesystem;
+
+/// Thrown when an object's decompressed contents fail decompression or SHA-256
+/// verification against its path hash (REQ-OBJ-4, REQ-ERR-3, RR-2).
+class IntegrityException : public std::runtime_error {
+public:
+    IntegrityException(const std::string& expected_hash,
+                       const std::string& actual_hash,
+                       const std::string& detail = "")
+        : std::runtime_error(
+              detail.empty()
+                  ? ("fatal: integrity check failed for object " + expected_hash +
+                     " (actual hash: " + actual_hash + ")")
+                  : detail),
+          expected_hash_(expected_hash),
+          actual_hash_(actual_hash) {}
+
+    const std::string& expected_hash() const noexcept { return expected_hash_; }
+    const std::string& actual_hash() const noexcept { return actual_hash_; }
+
+private:
+    std::string expected_hash_;
+    std::string actual_hash_;
+};
 
 // ─── Object types ────────────────────────────────────────────────────────────
 

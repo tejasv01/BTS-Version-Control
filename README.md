@@ -14,13 +14,20 @@ This project is submitted as part of the **Software Engineering** course at the 
 ```text
 bts-version-control/
 ├── docs/
-│   ├── SRS.md                  # This IEEE Std 830 document
-│   └── architecture.md         # Layer diagrams & modular specs
-├── src/                        # Source implementation
-├── tests/                      # Unit & integration test suites
-├── Makefile / CMakeLists.txt
-├── .gitignore                  # Ignore build artifacts, .bts/ test runs
-└── README.md                   # Project overview, team members, quickstart
+│   ├── SRS.md                    # IEEE Std 830 requirements specification
+│   ├── requirement-analysis.md   # Stakeholder analysis & use cases (UC-1..UC-5)
+│   ├── architecture.md           # Layer architecture, ADRs, SQA & UML diagrams
+│   ├── test-plan-and-report.md   # Test plan, traceability & benchmark report
+│   ├── project-plan.md           # Milestones, RACI matrix & risk register
+│   ├── maintenance.md            # ISO/IEC 14764 post-deployment maintenance guide
+│   └── commands.md               # Cross-platform build, test & CLI reference
+├── scripts/
+│   └── benchmark.py              # PR-1 / PR-2 Release benchmark runner
+├── src/                          # Source implementation
+├── tests/                        # Unit, integration, E2E & fault-injection tests
+├── CMakeLists.txt
+├── .gitignore
+└── README.md
 ```
 
 ## 🚀 Core Features
@@ -85,46 +92,63 @@ This project was collaboratively designed and developed by:
 * **zlib** (for object compression)
 * **GoogleTest** (for unit testing)
 
-### Build Instructions
-Clone the repository and build using CMake:
+### Build, Test & Benchmark Instructions
+
+Clone the repository and build a Release binary with CMake:
+
+**macOS / Linux / Windows (WSL or MSYS2 MinGW64):**
 
 ```bash
 git clone https://github.com/your-org/bts-version-control.git
 cd bts-version-control
 
-# Create build directory and compile
-mkdir build && cd build
-cmake ..
-make
+# Configure & compile (Release build)
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
+
+# Run all 38 CTest targets (105 GoogleTest cases)
+ctest --test-dir build --output-on-failure
+
+# Run PR-1 / PR-2 performance benchmarks
+python3 scripts/benchmark.py build/bts
 ```
+
+*(For Windows PowerShell multi-config syntax and full CLI/recovery commands, see [docs/commands.md](docs/commands.md).)*
 
 ### Basic Usage
 
-After building, you can add the executable to your path or run it directly.
+*(Tip: run `export PATH="$(pwd)/build:$PATH"` in your shell or add it to `~/.zshrc` so you can invoke `bts` directly from anywhere; see [docs/commands.md](docs/commands.md#optional-run-bts-globally-add-build-to-path) for Linux/Windows `PATH` setup.)*
 
 ```bash
 # Initialize a new repository
-./bts init
+./build/bts init
 
 # Configure user identity
-./bts config user.name "Your Name"
-./bts config user.email "your.email@example.com"
+./build/bts config user.name "Your Name"
+./build/bts config user.email "your.email@example.com"
 
-# Create a file, stage, and commit
+# Create a file, stage, check status, and commit
 echo "Hello World" > hello.txt
-./bts add hello.txt
-./bts commit -m "Initial commit"
+./build/bts add hello.txt
+./build/bts status
+./build/bts commit -m "Initial commit"
 
-# Check history
-./bts log --oneline
+# Inspect history and branches
+./build/bts log --oneline
+./build/bts branch
 ```
 
 ---
 
 ## 📚 Documentation
 
-Detailed software engineering artifacts, including the formal IEEE Std 830-1998 requirements specification, can be found in the `docs/` directory:
+Detailed software engineering artifacts and references live in `docs/`:
 * [Software Requirements Specification (SRS)](docs/SRS.md)
+* [Requirement Analysis & Use Cases](docs/requirement-analysis.md)
+* [Architecture, Design Decisions & UML Models](docs/architecture.md)
+* [Test Plan, SQA & Benchmark Report](docs/test-plan-and-report.md)
+* [Project Plan, RACI & Risk Register](docs/project-plan.md)
+* [Software Maintenance Plan](docs/maintenance.md)
+* [Command Reference (macOS, Linux, Windows)](docs/commands.md)
 
 ---
 *Created for the Software Engineering Course (Nov 2026).*

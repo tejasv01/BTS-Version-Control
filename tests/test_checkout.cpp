@@ -130,3 +130,88 @@ TEST_F(CheckoutTest, CheckoutDetached_TooShortPrefixFails) {
     EXPECT_NE(rc, 0);
     EXPECT_NE(err.find("at least 4 characters"), std::string::npos);
 }
+
+// ─── Overwrite protection (REQ-CHK-2) ────────────────────────────────────────
+
+TEST_F(CheckoutTest, Checkout_RefusesOverwriteModifiedTrackedFile) {
+    {
+        std::ofstream f(repo_ / "file.txt");
+        f << "uncommitted local modification\n";
+    }
+
+    testing::internal::CaptureStderr();
+    int rc = bts::cmd_checkout(repo_, "feature");
+    std::string err = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(rc, 1);
+    EXPECT_NE(err.find("overwritten"), std::string::npos);
+    EXPECT_EQ(bts::current_branch(repo_), "main");
+
+    std::ifstream in(repo_ / "file.txt");
+    std::string content((std::istreambuf_iterator<char>(in)),
+                        std::istreambuf_iterator<char>());
+    EXPECT_EQ(content, "uncommitted local modification\n");
+}
+
+TEST_F(CheckoutTest, Checkout_RefusesOverwriteUntrackedCollision) {
+    // Add commit on feature introducing extra.txt while main lacks it.
+    std::string extra_blob =
+        bts::write_object(repo_, bts::ObjectType::Blob, "from feature branch\n");
+    std::string blob2 =
+        bts::write_object(repo_, bts::ObjectType::Blob, "hello version 2\n");
+    std::string tree3 = bts::write_tree(
+        repo_, {{100644, "extra.txt", extra_blob}, {100644, "file.txt", blob2}});
+    std::string commit3 =
+        bts::write_commit(repo_, tree3, {commit2_}, "Sarthak <s@s.com>", "commit 3");
+    bts::update_branch_ref(repo_, "feature", commit3);
+
+    {
+        std::ofstream untracked(repo_ / "extra.txt");
+        untracked << "precious untracked work\n";
+    }
+
+    testing::internal::CaptureStderr();
+    int rc = bts::cmd_checkout(repo_, "feature");
+    std::string err = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(rc, 1);
+    EXPECT_NE(err.find("overwritten"), std::string::npos);
+    EXPECT_EQ(bts::current_branch(repo_), "main");
+
+    std::ifstream in(repo_ / "extra.txt");
+    std::string content((std::istreambuf_iterator<char>(in)),
+                        std::istreambuf_iterator<char>());
+    EXPECT_EQ(content, "precious untracked work\n");
+}
+
+// ─── Ambiguous prefix & branch precedence (REQ-CHK-3) ────────────────────────
+
+TEST_F(CheckoutTest, CheckoutDetached_AmbiguousPrefixListsCandidates) {
+    std::string fake_hash = commit2_;
+    fake_hash.back() = (fake_hash.back() == '0') ? '1' : '0';
+    fs::path orig_obj =
+        repo_ / ".bts" / "objects" / commit2_.substr(0, 2) / commit2_.substr(2);
+    fs::path fake_obj =
+        repo_ / ".bts" / "objects" / fake_hash.substr(0, 2) / fake_hash.substr(2);
+    fs::copy_file(orig_obj, fake_obj);
+
+    testing::internal::CaptureStderr();
+    int rc = bts::cmd_checkout(repo_, commit2_.substr(0, 8));
+    std::string err = testing::internal::GetCapturedStderr();
+
+    EXPECT_EQ(rc, 1);
+    EXPECT_NE(err.find("ambiguous"), std::string::npos);
+    EXPECT_NE(err.find(commit2_), std::string::npos);
+    EXPECT_NE(err.find(fake_hash), std::string::npos);
+}
+
+TEST_F(CheckoutTest, Checkout_BranchPrecedenceOverCommitPrefix) {
+    std::string branch_name = commit2_.substr(0, 8);
+    bts::update_branch_ref(repo_, branch_name, commit1_);
+
+    int rc = bts::cmd_checkout(repo_, branch_name);
+    EXPECT_EQ(rc, 0);
+    EXPECT_FALSE(bts::is_head_detached(repo_));
+    EXPECT_EQ(bts::current_branch(repo_), branch_name);
+    EXPECT_EQ(bts::resolve_head(repo_), commit1_);
+}
