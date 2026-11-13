@@ -114,3 +114,39 @@ Executed via `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build bu
 |---|---|---|---|---|---|---|
 | **PR-1** | Stage (`bts add .`) and commit (`bts commit`) 1,000 files (`19.53 MiB`) at zlib level 1 | `< 3.0 s` | **0.232 s** | 0.226 s | **0.244 s** (`12.3x` margin) | Pass |
 | **PR-2** | `bts status` on a clean repository of 5,000 files using the `lstat` cache | `< 200 ms` | **40.3 ms** | 39.7 ms | **40.6 ms** (`4.9x` margin) | Pass |
+
+---
+
+## 7. Native Windows Verification (Assigned to Bharat — Pending)
+
+> [!NOTE]
+> Native Windows verification (non-WSL) is assigned to **Bharat**. Because the current C++17 codebase uses POSIX headers (`<unistd.h>`, `<fcntl.h>`, `::lstat`, `::fsync`, `O_CREAT | O_EXCL`), run the native Windows test via **MSYS2 MinGW64** (or record any MSVC/Win32 shim adjustments required per [maintenance.md](maintenance.md#L48-L55)).
+
+### Steps for Bharat (MSYS2 MinGW64 on Windows)
+
+```bash
+# 1. Install toolchain & dependencies in MSYS2 MinGW64 shell:
+pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-openssl mingw-w64-x86_64-zlib mingw-w64-x86_64-gtest
+
+# 2. Configure & build Release binary:
+cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
+
+# 3. Run full CTest suite:
+ctest --test-dir build --output-on-failure
+
+# 4. Run PR-1 / PR-2 performance benchmarks:
+python3 scripts/benchmark.py build/bts.exe --runs 3
+```
+
+### Windows Results Template (To Be Filled by Bharat)
+
+| Field | Value |
+|---|---|
+| **Tester** | Bharat |
+| **OS / Windows Version** | *TBD* |
+| **CPU / RAM** | *TBD* |
+| **Toolchain** | *MSYS2 MinGW64 (`g++` / `cmake`) — Non-WSL* |
+| **CTest Result** | *Pending (expected: `100% tests passed`)* |
+| **PR-1 (`< 3.0 s`)** | *Pending (`median / min / max`)* |
+| **PR-2 (`< 200 ms`)** | *Pending (`median / min / max`)* |
+| **Notes / Issues** | *Record any Windows path, `lstat`, symlink (`120000`), or `0444` permission quirks observed* |
