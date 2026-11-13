@@ -1,0 +1,17 @@
+# Build artifacts
+build/
+cmake-build-*/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test runs
+.bts/
+
+# OS
+.DS_Store
+Thumbs.db
