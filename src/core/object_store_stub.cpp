@@ -187,7 +187,11 @@ std::string write_object(const fs::path& repo, ObjectType type,
     fs::path temp_path = parent / (".tmp_" + std::to_string(bts::platform::get_pid()) + "_" +
                                    std::to_string(dist(rng)) + "_" + hash.substr(2, 8));
 
-    FILE* fp = std::fopen(temp_path.string().c_str(), "wb");
+#if defined(_WIN32)
+    FILE* fp = ::_wfopen(temp_path.wstring().c_str(), L"wb");
+#else
+    FILE* fp = std::fopen(temp_path.c_str(), "wb");
+#endif
     if (!fp) {
         throw std::runtime_error("Failed to create temporary object file: " + temp_path.string());
     }

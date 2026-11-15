@@ -1,7 +1,9 @@
 #ifndef BTS_PLATFORM_H
 #define BTS_PLATFORM_H
 
+#include <cerrno>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -73,18 +75,15 @@ inline unsigned long get_pid() {
 } // namespace platform
 } // namespace bts
 
-// Global namespace shims for seamless compatibility with ::lstat and ::fsync calls
+// Global namespace shims for seamless compatibility with ::lstat calls
 inline int lstat(const wchar_t* path, struct stat* st) {
     return bts::platform::lstat_impl(path, st);
 }
 inline int lstat(const char* path, struct stat* st) {
-    return bts::platform::lstat_impl(path, st);
+    return bts::platform::lstat_impl(std::filesystem::u8path(path ? path : ""), st);
 }
 inline int lstat(const std::filesystem::path& path, struct stat* st) {
     return bts::platform::lstat_impl(path, st);
-}
-inline int fsync(int fd) {
-    return bts::platform::fsync(fd);
 }
 
 #else
