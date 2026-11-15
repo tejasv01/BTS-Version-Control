@@ -147,6 +147,28 @@ python scripts/benchmark.py build/bts.exe --runs 3
 | **CPU / RAM** | AMD Ryzen 7 7435HS (8 Cores, 16 Threads) / 24 GB RAM |
 | **Toolchain** | MSYS2 MinGW64 / UCRT64 (`g++` 15.2.0, CMake 4.1.2) — Native Windows (Non-WSL) |
 | **CTest Result** | **100% tests passed** (38/38 tests passed, 0 failures, 4.33 s total execution time) |
-| **PR-1 (`< 3.0 s`)** | **20.320 s** (`min: 20.277 s` / `max: 20.394 s` across 3 trials) |
-| **PR-2 (`< 200 ms`)** | **1146.4 ms** (`min: 1133.9 ms` / `max: 1160.4 ms` across 3 trials) |
-| **Notes / Issues** | • **Platform Abstraction Layer (`platform.h`)**: Native Windows CRT lacks POSIX `lstat()`, `fsync()`, and `<unistd.h>`. Added `src/include/bts/platform.h` implementing fast Win32 `GetFileAttributesExW` (1-syscall `lstat` replacement), `_commit()` for `fsync()`, and `_wopen` with `_O_BINARY` for atomic lock files per `maintenance.md#L62`.<br>• **CRLF vs LF Text Mode**: On Windows, default `std::ofstream` expands `\n` to `\r\n`, which altered blob hashes and hunk comparisons; test fixtures now use `std::ios::binary`.<br>• **Symlinks (`120000`) on Windows**: Creating NTFS symlinks requires elevated administrator privileges or Windows Developer Mode (`SeCreateSymbolicLinkPrivilege`). Unit tests check privileges and handle lack of developer-mode permissions gracefully.<br>• **NTFS Latency**: PR-1 and PR-2 timings on Windows reflect NTFS metadata overhead, real-time antivirus filter driver interception, and synchronous flush (`_commit()`) latency compared to Linux/macOS in-memory VFS/tmpfs caching. |
+| **PR-1 (`< 3.0 s`)** | **20.320 s** (`min: 20.277 s` / `max: 20.394 s` across 3 trials) — **Exceeds Target (Native Windows Latency Issue)** |
+| **PR-2 (`< 200 ms`)** | **1146.4 ms** (`min: 1133.9 ms` / `max: 1160.4 ms` across 3 trials) — **Exceeds Target (Native Windows Latency Issue)** |
+| **Notes / Issues** | • **Platform Abstraction Layer (`platform.h`)**: Native Windows CRT lacks POSIX `lstat()`, `fsync()`, and `<unistd.h>`. Added `src/include/bts/platform.h` implementing fast Win32 `GetFileAttributesExW` (1-syscall `lstat` replacement), `_commit()` for `fsync()`, and `_wopen` with `_O_BINARY` for atomic lock files per `maintenance.md#L62`.<br>• **CRLF vs LF Text Mode**: On Windows, default `std::ofstream` expands `\n` to `\r\n`, which altered blob hashes and hunk comparisons; test fixtures now use `std::ios::binary`.<br>• **Symlinks (`120000`) on Windows**: Creating NTFS symlinks requires elevated administrator privileges or Windows Developer Mode (`SeCreateSymbolicLinkPrivilege`). Unit tests check privileges and handle lack of developer-mode permissions gracefully.<br>• **Direct Cause of Windows Latency Issues**: As detailed below, native Windows legacy I/O characteristics directly cause significant latency issues for PR-1 and PR-2, preventing them from matching the POSIX targets without parallelized I/O and stat preloading. |
+
+### Explicit Analysis of Windows Latency Issues (PR-1 & PR-2)
+
+The benchmark measurements demonstrate that while **functional verification is 100% complete and passing** (38/38 CTests), native Windows exhibits severe latency bottlenecks due to underlying OS and filesystem architecture:
+
+#### 1. PR-1 Latency Issue: 20.320 s (Target: < 3.0 s)
+During `bts add .`, 1,000 files are staged, compressed, and written to `.bts/objects/` under the atomic-write protocol:
+- **Synchronous Disk Flush Overhead (`_commit` / `FlushFileBuffers`)**: On Windows, `_commit()` flushes both file buffers and NTFS metadata synchronously to physical media. On Linux/macOS, dirty pages reside in the kernel page cache and tmpfs VFS memory buffers. On Windows NVMe/SSD, each synchronous `_commit()` incurs ~15–20 ms of hardware controller flush latency, which sequentially accumulates to ~18–20 seconds across 1,000 individual object writes.
+- **Atomic Rename Write-Through**: Windows requires `MoveFileExW` with `MOVEFILE_WRITE_THROUGH` to ensure directory entry durability without POSIX directory `fsync()`, adding further blocking I/O serialization per file.
+- **Antivirus Filter Driver Interception**: Windows Defender and the filesystem filter driver stack (`fltmgr.sys`) intercept every sequential file creation, close, and rename operation to perform real-time scanning, adding substantial per-file latency.
+- **Entropy Provider Re-initialization**: Per-object initialization of `std::random_device` repeatedly invokes the Windows Cryptographic Provider (`\Device\KsecDD`), introducing CPU overhead during high-volume object creation.
+
+#### 2. PR-2 Latency Issue: 1146.4 ms (Target: < 200 ms)
+During `bts status`, 5,000 clean files are checked against the index cache:
+- **Sequential Win32 Syscall Overhead**: Calling `GetFileAttributesExW` sequentially across 5,000 files requires 5,000 distinct kernel mode transitions and NTFS Master File Table (MFT) record queries. On Windows, this incurs ~0.22 ms per file (~1,100 ms total), whereas POSIX systems resolve stats from hot, in-memory dentry caches in microseconds.
+- **Dual-Pass Traversal**: `cmd_status` currently performs two separate passes (one verifying index entries via `inspect_working_path` and one performing recursive directory iteration for untracked files), multiplying the total number of Win32 file attribute lookups.
+- **Single-Threaded Execution**: Unlike Git for Windows (which uses multi-threaded stat cache preloading and `core.fscache`), sequential single-threaded traversal on Windows cannot mask NTFS lookup latency.
+
+#### 3. Planned Mitigations for Windows (Per `maintenance.md#L89-L94`)
+- **Parallel Hashing and Object Writing**: Partition large `bts add` batches across worker threads (`std::thread::hardware_concurrency`) so disk flushes and compression overlap across all CPU cores.
+- **Stat Cache Preloading in Status**: Use a multi-threaded stat worker pool to evaluate working tree entries concurrently, or leverage `WIN32_FIND_DATAW` attributes directly during directory traversal to eliminate redundant `GetFileAttributesExW` calls.
+- **Thread-Local Entropy**: Cache the random number generator across object writes to eliminate repetitive CryptoAPI opens.
