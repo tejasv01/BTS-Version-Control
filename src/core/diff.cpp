@@ -1,4 +1,5 @@
 #include "bts/diff.h"
+#include "bts/platform.h"
 #include "bts/index.h"
 #include "bts/object_store.h"
 

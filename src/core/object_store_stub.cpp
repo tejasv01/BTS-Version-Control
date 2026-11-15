@@ -2,6 +2,7 @@
 // Based on interface in bts/object_store.h and storage primitives from src/storage/
 
 #include "bts/object_store.h"
+#include "bts/platform.h"
 #include "../storage/compress.hpp"
 #include "../storage/hash.hpp"
 
@@ -183,15 +184,19 @@ std::string write_object(const fs::path& repo, ObjectType type,
     std::random_device rd;
     std::mt19937 rng(rd());
     std::uniform_int_distribution<uint32_t> dist;
-    fs::path temp_path = parent / (".tmp_" + std::to_string(::getpid()) + "_" +
+    fs::path temp_path = parent / (".tmp_" + std::to_string(bts::platform::get_pid()) + "_" +
                                    std::to_string(dist(rng)) + "_" + hash.substr(2, 8));
 
+#if defined(_WIN32)
+    FILE* fp = ::_wfopen(temp_path.wstring().c_str(), L"wb");
+#else
     FILE* fp = std::fopen(temp_path.c_str(), "wb");
+#endif
     if (!fp) {
         throw std::runtime_error("Failed to create temporary object file: " + temp_path.string());
     }
     std::size_t written = std::fwrite(compressed.data(), 1, compressed.size(), fp);
-    if (written != compressed.size() || std::fflush(fp) != 0 || ::fsync(fileno(fp)) != 0) {
+    if (written != compressed.size() || std::fflush(fp) != 0 || bts::platform::fsync(fileno(fp)) != 0) {
         std::fclose(fp);
         fs::remove(temp_path, ec);
         throw std::runtime_error("Failed to write object file: " + temp_path.string());

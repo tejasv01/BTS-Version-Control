@@ -2,6 +2,7 @@
 // Owner: Tejasv Lata (Staging Index & Diff Engine)
 
 #include "bts/index.h"
+#include "bts/platform.h"
 #include "bts/object_store.h"
 #include "bts/refs.h"
 #include "../storage/hash.hpp"
@@ -142,6 +143,8 @@ WorkingStatInfo inspect_working_path(const fs::path& fp) {
     info.mtime_sec = static_cast<uint64_t>(st.st_mtime);
 #if defined(__APPLE__)
     info.mtime_nsec = static_cast<uint32_t>(st.st_mtimespec.tv_nsec);
+#elif defined(_WIN32)
+    info.mtime_nsec = 0;
 #else
     info.mtime_nsec = static_cast<uint32_t>(st.st_mtim.tv_nsec);
 #endif
@@ -473,7 +476,7 @@ bool write_index(const fs::path& repo,
     buf.append(footer);
 
     // Exclusive lock creation (RR-3)
-    int fd = ::open(lock_path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0644);
+    int fd = bts::platform::open_exclusive_lock(lock_path);
     if (fd < 0) {
         std::cerr << "fatal: Unable to create '.bts/index.lock': "
                   << std::strerror(errno) << "\n";

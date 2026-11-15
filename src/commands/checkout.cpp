@@ -1,4 +1,5 @@
 #include "bts/checkout.h"
+#include "bts/platform.h"
 
 #include <sys/stat.h>
 
@@ -312,6 +313,8 @@ int cmd_checkout(const fs::path& repo, const std::string& target) {
             ie.mtime_sec = static_cast<uint64_t>(st.st_mtime);
 #if defined(__APPLE__)
             ie.mtime_nsec = static_cast<uint32_t>(st.st_mtimespec.tv_nsec);
+#elif defined(_WIN32)
+            ie.mtime_nsec = 0;
 #else
             ie.mtime_nsec = static_cast<uint32_t>(st.st_mtim.tv_nsec);
 #endif
