@@ -45,7 +45,7 @@ protected:
 
         // Write file1 to working tree
         {
-            std::ofstream f(repo_ / "file.txt");
+            std::ofstream f(repo_ / "file.txt", std::ios::binary);
             f << "hello version 1\n";
         }
         // Write index entry for file1

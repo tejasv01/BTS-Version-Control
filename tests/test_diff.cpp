@@ -122,7 +122,7 @@ TEST_F(DiffTest, BinaryFilesDifferNotice) {
 
 TEST_F(DiffTest, CmdDiffWorkingTreeVsIndex) {
     {
-        std::ofstream f(repo_ / "code.txt");
+        std::ofstream f(repo_ / "code.txt", std::ios::binary);
         f << "alpha\nbeta\ngamma\n";
     }
     {
@@ -133,7 +133,7 @@ TEST_F(DiffTest, CmdDiffWorkingTreeVsIndex) {
         b.write(payload.data(), static_cast<std::streamsize>(payload.size()));
     }
     {
-        std::ofstream clean(repo_ / "clean.txt");
+        std::ofstream clean(repo_ / "clean.txt", std::ios::binary);
         clean << "unchanged\n";
     }
 
@@ -141,7 +141,7 @@ TEST_F(DiffTest, CmdDiffWorkingTreeVsIndex) {
 
     // Modify code.txt and data.bin in working tree
     {
-        std::ofstream f(repo_ / "code.txt");
+        std::ofstream f(repo_ / "code.txt", std::ios::binary);
         f << "alpha\nbeta_updated\ngamma\ndelta\n";
     }
     {

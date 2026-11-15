@@ -1,5 +1,6 @@
 #include "bts/cli.h"
 
+#include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <string>

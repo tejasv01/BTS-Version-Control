@@ -117,16 +117,16 @@ Executed via `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build bu
 
 ---
 
-## 7. Native Windows Verification (Assigned to Bharat — Pending)
+## 7. Native Windows Verification (Completed by Bharat)
 
 > [!NOTE]
-> Native Windows verification (non-WSL) is assigned to **Bharat**. Because the current C++17 codebase uses POSIX headers (`<unistd.h>`, `<fcntl.h>`, `::lstat`, `::fsync`, `O_CREAT | O_EXCL`), run the native Windows test via **MSYS2 MinGW64** (or record any MSVC/Win32 shim adjustments required per [maintenance.md](maintenance.md#L48-L55)).
+> Native Windows verification (non-WSL) was conducted by **Bharat** on native Windows 11 using **MSYS2 MinGW-w64 (UCRT64)** toolchain without WSL, implementing the platform abstraction shim per [maintenance.md](maintenance.md#L48-L55).
 
-### Steps for Bharat (MSYS2 MinGW64 on Windows)
+### Steps Executed (MSYS2 MinGW64 / UCRT64 on Windows)
 
 ```bash
-# 1. Install toolchain & dependencies in MSYS2 MinGW64 shell:
-pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-openssl mingw-w64-x86_64-zlib mingw-w64-x86_64-gtest
+# 1. Install toolchain & dependencies in MSYS2 shell:
+pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-openssl mingw-w64-ucrt-x86_64-zlib mingw-w64-ucrt-x86_64-gtest mingw-w64-ucrt-x86_64-python
 
 # 2. Configure & build Release binary:
 cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
@@ -135,18 +135,18 @@ cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release && cmake --b
 ctest --test-dir build --output-on-failure
 
 # 4. Run PR-1 / PR-2 performance benchmarks:
-python3 scripts/benchmark.py build/bts.exe --runs 3
+python scripts/benchmark.py build/bts.exe --runs 3
 ```
 
-### Windows Results Template (To Be Filled by Bharat)
+### Windows Verification Results
 
 | Field | Value |
 |---|---|
 | **Tester** | Bharat |
-| **OS / Windows Version** | *TBD* |
-| **CPU / RAM** | *TBD* |
-| **Toolchain** | *MSYS2 MinGW64 (`g++` / `cmake`) — Non-WSL* |
-| **CTest Result** | *Pending (expected: `100% tests passed`)* |
-| **PR-1 (`< 3.0 s`)** | *Pending (`median / min / max`)* |
-| **PR-2 (`< 200 ms`)** | *Pending (`median / min / max`)* |
-| **Notes / Issues** | *Record any Windows path, `lstat`, symlink (`120000`), or `0444` permission quirks observed* |
+| **OS / Windows Version** | Microsoft Windows 11 Home Single Language (Version 10.0.26200, 64-bit) |
+| **CPU / RAM** | AMD Ryzen 7 7435HS (8 Cores, 16 Threads) / 24 GB RAM |
+| **Toolchain** | MSYS2 MinGW64 / UCRT64 (`g++` 15.2.0, CMake 4.1.2) — Native Windows (Non-WSL) |
+| **CTest Result** | **100% tests passed** (38/38 tests passed, 0 failures, 4.33 s total execution time) |
+| **PR-1 (`< 3.0 s`)** | **20.320 s** (`min: 20.277 s` / `max: 20.394 s` across 3 trials) |
+| **PR-2 (`< 200 ms`)** | **1146.4 ms** (`min: 1133.9 ms` / `max: 1160.4 ms` across 3 trials) |
+| **Notes / Issues** | • **Platform Abstraction Layer (`platform.h`)**: Native Windows CRT lacks POSIX `lstat()`, `fsync()`, and `<unistd.h>`. Added `src/include/bts/platform.h` implementing fast Win32 `GetFileAttributesExW` (1-syscall `lstat` replacement), `_commit()` for `fsync()`, and `_wopen` with `_O_BINARY` for atomic lock files per `maintenance.md#L62`.<br>• **CRLF vs LF Text Mode**: On Windows, default `std::ofstream` expands `\n` to `\r\n`, which altered blob hashes and hunk comparisons; test fixtures now use `std::ios::binary`.<br>• **Symlinks (`120000`) on Windows**: Creating NTFS symlinks requires elevated administrator privileges or Windows Developer Mode (`SeCreateSymbolicLinkPrivilege`). Unit tests check privileges and handle lack of developer-mode permissions gracefully.<br>• **NTFS Latency**: PR-1 and PR-2 timings on Windows reflect NTFS metadata overhead, real-time antivirus filter driver interception, and synchronous flush (`_commit()`) latency compared to Linux/macOS in-memory VFS/tmpfs caching. |

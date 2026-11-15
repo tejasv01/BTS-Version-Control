@@ -149,6 +149,7 @@ TEST_F(SystemE2ETest, FaultInjection_SigkillPreservesConsistentRepoState) {
     ASSERT_EQ(run_cli({"bts", "add", "seed.txt"}), 0);
     ASSERT_EQ(run_cli({"bts", "commit", "-m", "Seed commit"}), 0);
 
+#ifndef _WIN32
     // Fork a child repeatedly creating files, staging, and committing; kill it
     // asynchronously with SIGKILL to simulate sudden power loss / crash.
     pid_t pid = ::fork();
@@ -171,6 +172,7 @@ TEST_F(SystemE2ETest, FaultInjection_SigkillPreservesConsistentRepoState) {
     ASSERT_EQ(::waitpid(pid, &status, 0), pid);
     EXPECT_TRUE(WIFSIGNALED(status));
     EXPECT_EQ(WTERMSIG(status), SIGKILL);
+#endif
 
     // Clean stale lock files if child died while holding one, then verify all
     // atomic committed state (HEAD, branch ref, index, commit objects) is valid.

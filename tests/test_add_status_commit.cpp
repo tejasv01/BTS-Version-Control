@@ -57,12 +57,12 @@ protected:
 
 TEST_F(AddStatusCommitTest, AddRegularExecutableAndSymlink) {
     {
-        std::ofstream f(repo_ / "readme.txt");
+        std::ofstream f(repo_ / "readme.txt", std::ios::binary);
         f << "hello world\n";
     }
     fs::create_directories(repo_ / "scripts");
     {
-        std::ofstream s(repo_ / "scripts" / "run.sh");
+        std::ofstream s(repo_ / "scripts" / "run.sh", std::ios::binary);
         s << "#!/bin/sh\necho hi\n";
     }
     fs::permissions(repo_ / "scripts" / "run.sh",
@@ -70,26 +70,34 @@ TEST_F(AddStatusCommitTest, AddRegularExecutableAndSymlink) {
                     fs::perm_options::replace);
 
     // Dangling symlink (REQ-ADD-5: must store target without following)
-    fs::create_symlink("scripts/run.sh", repo_ / "run_link");
-    fs::create_symlink("nonexistent/target", repo_ / "dangling_link");
+    std::error_code sym_ec;
+    fs::create_symlink("scripts/run.sh", repo_ / "run_link", sym_ec);
+    fs::create_symlink("nonexistent/target", repo_ / "dangling_link", sym_ec);
+    bool symlinks_supported = !sym_ec;
 
     ASSERT_EQ(bts::cmd_add(repo_, {"."}), 0);
 
     auto entries = bts::read_index(repo_);
-    ASSERT_EQ(entries.size(), 4u);
+    if (symlinks_supported) {
+        ASSERT_EQ(entries.size(), 4u);
 
-    // Entries sorted: dangling_link, readme.txt, run_link, scripts/run.sh
-    EXPECT_EQ(entries[0].path, "dangling_link");
-    EXPECT_EQ(entries[0].mode, 120000u);
+        // Entries sorted: dangling_link, readme.txt, run_link, scripts/run.sh
+        EXPECT_EQ(entries[0].path, "dangling_link");
+        EXPECT_EQ(entries[0].mode, 120000u);
 
-    EXPECT_EQ(entries[1].path, "readme.txt");
-    EXPECT_EQ(entries[1].mode, 100644u);
+        EXPECT_EQ(entries[1].path, "readme.txt");
+        EXPECT_EQ(entries[1].mode, 100644u);
 
-    EXPECT_EQ(entries[2].path, "run_link");
-    EXPECT_EQ(entries[2].mode, 120000u);
+        EXPECT_EQ(entries[2].path, "run_link");
+        EXPECT_EQ(entries[2].mode, 120000u);
 
-    EXPECT_EQ(entries[3].path, "scripts/run.sh");
-    EXPECT_EQ(entries[3].mode, 100755u);
+        EXPECT_EQ(entries[3].path, "scripts/run.sh");
+        EXPECT_EQ(entries[3].mode, 100755u);
+    } else {
+        ASSERT_EQ(entries.size(), 2u);
+        EXPECT_EQ(entries[0].path, "readme.txt");
+        EXPECT_EQ(entries[1].path, "scripts/run.sh");
+    }
 
     // Never include .bts/ (REQ-ADD-7)
     for (const auto& e : entries) {
@@ -97,8 +105,15 @@ TEST_F(AddStatusCommitTest, AddRegularExecutableAndSymlink) {
     }
 
     // Verify stored object is zlib-compressed, matches SHA-256, and has mode 0444 (SR-1, REQ-OBJ-3)
-    const std::string& h = entries[1].sha256;
-    std::string expected_raw = "blob 12\0hello world\n";
+    const bts::IndexEntry* readme_entry = nullptr;
+    for (const auto& e : entries) {
+        if (e.path == "readme.txt") {
+            readme_entry = &e;
+            break;
+        }
+    }
+    ASSERT_NE(readme_entry, nullptr);
+    const std::string& h = readme_entry->sha256;
     std::string full_header_payload = std::string("blob 12") + '\0' + "hello world\n";
     EXPECT_EQ(h, bts::sha256(full_header_payload));
 
@@ -115,9 +130,19 @@ TEST_F(AddStatusCommitTest, AddRegularExecutableAndSymlink) {
     EXPECT_EQ(bts::decompress_data(compressed), full_header_payload);
 
     // Symlink blob contains link target string
-    auto sym_blob = bts::read_object(repo_, entries[0].sha256);
-    ASSERT_TRUE(sym_blob.has_value());
-    EXPECT_EQ(*sym_blob, "nonexistent/target");
+    if (symlinks_supported) {
+        const bts::IndexEntry* sym_entry = nullptr;
+        for (const auto& e : entries) {
+            if (e.path == "dangling_link") {
+                sym_entry = &e;
+                break;
+            }
+        }
+        ASSERT_NE(sym_entry, nullptr);
+        auto sym_blob = bts::read_object(repo_, sym_entry->sha256);
+        ASSERT_TRUE(sym_blob.has_value());
+        EXPECT_EQ(*sym_blob, "nonexistent/target");
+    }
 }
 
 TEST_F(AddStatusCommitTest, AddEmptyDirAndMissingPathAndLock) {
@@ -154,11 +179,11 @@ TEST_F(AddStatusCommitTest, AddEmptyDirAndMissingPathAndLock) {
 
 TEST_F(AddStatusCommitTest, StatusUnbornAndThreeCategoriesAndStatCache) {
     {
-        std::ofstream a(repo_ / "a.txt");
+        std::ofstream a(repo_ / "a.txt", std::ios::binary);
         a << "one\n";
     }
     {
-        std::ofstream u(repo_ / "untracked.txt");
+        std::ofstream u(repo_ / "untracked.txt", std::ios::binary);
         u << "u\n";
     }
     ASSERT_EQ(bts::cmd_add(repo_, {"a.txt"}), 0);
@@ -300,7 +325,9 @@ TEST_F(AddStatusCommitTest, NestedTreesDetachedCommitAndCheckoutRestore) {
     fs::permissions(repo_ / "src" / "sub" / "tool.sh",
                     fs::perms::owner_read | fs::perms::owner_write | fs::perms::owner_exec,
                     fs::perm_options::replace);
-    fs::create_symlink("sub/tool.sh", repo_ / "src" / "link");
+    std::error_code sym_ec;
+    fs::create_symlink("sub/tool.sh", repo_ / "src" / "link", sym_ec);
+    bool symlinks_supported = !sym_ec;
 
     ASSERT_EQ(bts::cmd_add(repo_, {"src"}), 0);
     testing::internal::CaptureStdout();
@@ -334,9 +361,13 @@ TEST_F(AddStatusCommitTest, NestedTreesDetachedCommitAndCheckoutRestore) {
     ASSERT_EQ(bts::cmd_checkout(repo_, "main"), 0);
     testing::internal::GetCapturedStdout();
 
+#ifndef _WIN32
     auto restored_perms = fs::status(repo_ / "src" / "sub" / "tool.sh").permissions();
     EXPECT_NE(restored_perms & fs::perms::owner_exec, fs::perms::none);
-    EXPECT_TRUE(fs::is_symlink(repo_ / "src" / "link"));
+#endif
+    if (symlinks_supported) {
+        EXPECT_TRUE(fs::is_symlink(repo_ / "src" / "link"));
+    }
 
     // Status immediately after checkout should be clean with 0 re-hashes (REQ-STAT-2)
     bts::reset_status_hash_count();
