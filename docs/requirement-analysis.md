@@ -27,7 +27,42 @@ Requirements in [SRS.md](file:///Users/tejasv/Code/SE/Project/BTS-Version-Contro
 
 ---
 
-## 2. System Boundary & Domain Constraints
+## 2. Requirement Elicitation
+
+Requirements were not assumed upfront; they were systematically elicited across four complementary techniques before being formalized and verified in [SRS.md](file:///Users/tejasv/Code/SE/Project/BTS-Version-Control/docs/SRS.md).
+
+### 2.1 Elicitation Techniques Applied
+
+| Technique | Sources / Artifacts Analyzed | Elicited Insights & Concrete Requirements |
+| :--- | :--- | :--- |
+| **T1: Reference Protocol & Artifact Analysis** | Git CLI semantics, loose object header/zlib formats, POSIX filesystem invariants, IEEE Std 830-1998 | Content-addressed `"<type> <size>\0"` object framing (`REQ-OBJ-1..3`), SHA-256 instead of legacy SHA-1 (`SR-1`), byte-sorted trees (`REQ-CMT-2`), versioned `"BTSI"` binary index (`Appendix B`, `MNT-3`), and POSIX `/` path separators (`PO-1`). |
+| **T2: Stakeholder Interviews & Rubric Alignment** | End-user developer workflows, course evaluation rubric, CI/CLI automation expectations | Familiar 9-command surface (`init`, `config`, `add`, `status`, `commit`, `log`, `branch`, `checkout`, `diff`), zero external `git` delegation, per-command `--help` (`USR-1`), and strict exit code separation (`REQ-ERR-1..4`). |
+| **T3: Failure-Mode & Edge-Case Walkthroughs** | Crash scenarios (`SIGKILL`), concurrent lock contention, dirty workspace switches, binary files, dangling symlinks | Atomic lock + `fsync` + `rename` writes (`RR-1`, `RR-3`), `0444` immutable objects + read-time hash verification (`RR-2`, `REQ-OBJ-4`), checkout overwrite refusal (`REQ-CHK-2`), `NUL`-byte binary diff guard (`REQ-DIF-3`), and symlink target storage `120000` (`REQ-ADD-5`). |
+| **T4: Prototyping & Benchmark Negotiation** | Early C++17 prototypes + [scripts/benchmark.py](file:///Users/tejasv/Code/SE/Project/BTS-Version-Control/scripts/benchmark.py) | Converted vague "must feel fast" goals into measurable targets: zlib level 1 for `PR-1` (`1,000` files `< 3.0 s`) and `lstat` `(mode, mtime, size)` cache for `PR-2` (`5,000` clean files `< 200 ms`, `REQ-STAT-2`). |
+
+### 2.2 Elicited Conflicts & Resolution Log
+
+| Conflict ID | Tension / Ambiguity Identified | Trade-Off & Final Resolution | Traced Requirement(s) |
+| :--- | :--- | :--- | :--- |
+| **C-1** | **Compression Ratio vs Staging Throughput:** Higher zlib levels (`6`/`9`) shrink disk footprint slightly but add CPU latency across 1,000+ blobs. | Standardized on **zlib level 1**; achieves `~0.23 s` on 1,000 files (`19.53 MiB`) on macOS (`< 3.0 s`). | `REQ-OBJ-3`, `PR-1` |
+| **C-2** | **Short Hash Readability vs Prefix Collisions:** Fixed 7-char output can collide as history grows, while `checkout` users want short prefixes. | `log --oneline` defaults to 7 chars and widens dynamically on collision (`abbreviate_hash`); `checkout` requires `>= 4` hex chars and lists all candidates on ambiguity. | `REQ-LOG-3`, `REQ-CHK-3` |
+| **C-3** | **Unified Error Exit vs Scriptability:** Returning `1` for every failure hides whether the user mistyped flags or suffered repository corruption. | Enforced a 4-tier exit contract: `0` (success), `1` (operational failure), `2` (CLI syntax/usage error), `3` (SHA-256/`BTSI` integrity corruption). | `REQ-ERR-2`, `REQ-ERR-3`, `REQ-ERR-4` |
+| **C-4** | **Symlinks & Cross-Platform Permissions:** Dereferencing symlinks duplicates external trees and crashes on dangling links; Windows lacks POSIX `0755` bits and unprivileged symlinks. | Store symlink target text with mode `120000` without following (`lstat`); isolate OS primitives in [platform.h](file:///Users/tejasv/Code/SE/Project/BTS-Version-Control/src/include/bts/platform.h) and guard Windows privilege/mode differences in tests. | `REQ-ADD-5`, `PO-2` |
+| **C-5** | **Feature Breadth vs Reliability Scope:** Packfiles, 3-way merge, remotes, and `.btsignore` risked schedule overrun and compromised atomicity testing. | Explicitly deferred out of v0.1 scope (`SRS.md` Section 1.3) to prioritize crash-safe local storage and `100%` CTest + `SIGKILL` fault-injection coverage. | `E`/`D`/`O` Priority Model |
+
+### 2.3 Raw Need to SRS Traceability
+
+| Elicited Stakeholder Need | Elicitation Source | Formalized SRS Requirement(s) |
+| :--- | :--- | :--- |
+| *"Never lose uncommitted edits when switching branches."* | `T2`, `T3` | `REQ-CHK-2` |
+| *"Detect silent disk corruption or tampering immediately."* | `T2`, `T3` | `REQ-OBJ-4`, `REQ-ERR-3`, `RR-2`, `SR-1` |
+| *"Don't corrupt `.bts/index` or refs if the process is killed mid-write."* | `T3` | `RR-1`, `RR-3` |
+| *"Running `status` in a large clean repo must be near-instant."* | `T2`, `T4` | `REQ-STAT-2`, `PR-2` |
+| *"Reject typos/unknown flags cleanly instead of silently ignoring them."* | `T2`, `T3` | `REQ-ERR-2` |
+
+---
+
+## 3. System Boundary & Domain Constraints
 
 ```mermaid
 flowchart LR
@@ -51,7 +86,7 @@ flowchart LR
 
 ---
 
-## 3. Functional & Non-Functional Classification Summary
+## 4. Functional & Non-Functional Classification Summary
 
 | Dimension | Count in SRS v0.3 | Core Focus |
 | :--- | :---: | :--- |
@@ -62,7 +97,7 @@ flowchart LR
 
 ---
 
-## 4. Detailed Use Case Model
+## 5. Detailed Use Case Model
 
 ```mermaid
 flowchart LR

@@ -26,9 +26,23 @@
 
 ---
 
-## 2. Development Schedule & Milestones
+## 2. SDLC Model, Development Schedule & Milestones
 
-The project followed an incremental milestone workflow combining parallel module development on feature branches with continuous integration via GitHub Pull Requests (`PR #6` Reference/CLI, `PR #7` Storage/Object Model, final Index/Diff & QA integration).
+The project followed the **Iterative Waterfall Model**: sequential engineering phases (Requirements Analysis & SRS → Architecture & Design → Coding & Unit Testing → Integration & System Testing → Maintenance) with **feedback loops** to earlier phases whenever defects, ambiguities, or cross-platform performance issues were uncovered (e.g., SRS revisions `v0.1` → `v0.3`, `cli.cpp` validation hardening, and `PR #8` Windows `platform.h` feedback). Within the Coding phase, independent modules were built on parallel feature branches and merged via Pull Requests (`PR #6`, `PR #7`, `PR #8`).
+
+### Iterative Waterfall Workflow & Feedback Loops
+
+```mermaid
+flowchart LR
+    P1["1. Requirements and SRS (M1)"] --> P2["2. Architecture and Design (M1)"]
+    P2 --> P3["3. Coding and Unit Testing (M2-M4)"]
+    P3 --> P4["4. Integration, System Testing and Benchmarks (M5)"]
+    P4 --> P5["5. Maintenance and Portability (PR #8)"]
+    P2 -. Feedback .-> P1
+    P3 -. Feedback .-> P2
+    P4 -. Feedback .-> P3
+    P5 -. Feedback .-> P2
+```
 
 ### Milestone Dependency Flow
 

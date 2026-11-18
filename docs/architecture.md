@@ -292,58 +292,7 @@ sequenceDiagram
     end
 ```
 
-### 5.6 Activity Diagram — `bts add` Staging Workflow (`REQ-ADD-1..7`, `RR-1`)
-
-```mermaid
-flowchart TD
-    AddStart(["bts add path..."]) --> ReadCur["read_index(repo)"]
-    ReadCur --> Collect["Expand paths lexicographically (skip .bts/)"]
-    Collect --> PathLoop{"More candidate paths?"}
-    PathLoop -->|"No"| LockIdx["Acquire .bts/index.lock (O_CREAT + O_EXCL)"]
-    PathLoop -->|"Yes"| StatItem["lstat(path)"]
-    StatItem --> IsMissing{"Exists?"}
-    IsMissing -->|"No"| Fail1["Print error and exit 1 (REQ-ADD-4)"]
-    IsMissing -->|"Yes"| ModeCheck{"Symlink or File?"}
-    ModeCheck -->|"Symlink"| Mode120["Read link target, mode = 120000 (REQ-ADD-5)"]
-    ModeCheck -->|"Regular file"| ModeExec{"Executable bit set?"}
-    ModeExec -->|"Yes"| Set755["mode = 100755"]
-    ModeExec -->|"No"| Set644["mode = 100644"]
-    Mode120 --> WriteBlob["write_object Blob (SHA-256 + 0444 zlib)"]
-    Set755 --> WriteBlob
-    Set644 --> WriteBlob
-    WriteBlob --> Upsert["Upsert sorted IndexEntry with lstat metadata"]
-    Upsert --> PathLoop
-    LockIdx --> WriteTmp["Write BTSI v1 header, entries, SHA-256 footer"]
-    WriteTmp --> FsyncRename["fsync and atomic rename index.lock to index"]
-    FsyncRename --> AddDone(["Exit 0"])
-```
-
-### 5.7 Activity Diagram — `bts status` Stat Cache (`REQ-STAT-1..3`, `PR-2`)
-
-```mermaid
-flowchart TD
-    Start(["bts status"]) --> ReadIdx["Read .bts/index (verify magic, version, SHA-256)"]
-    ReadIdx --> HeadCmp["Compare index entries vs HEAD tree (Staged changes)"]
-    HeadCmp --> LoopStart{"More index entries?"}
-    LoopStart -->|"Yes"| Lstat["lstat(working_tree_path)"]
-    Lstat --> Exists{"File exists?"}
-    Exists -->|"No"| UnstagedDel["Mark unstaged deleted"]
-    Exists -->|"Yes"| StatMatch{"mode, mtime, and size match index?"}
-    StatMatch -->|"Yes"| SkipHash["Stat-cache hit: skip hashing (REQ-STAT-2)"]
-    StatMatch -->|"No"| SizeModeMatch{"mode and size match?"}
-    SizeModeMatch -->|"No"| UnstagedMod["Mark unstaged modified"]
-    SizeModeMatch -->|"Yes"| HashFile["Read and SHA-256 hash blob"]
-    HashFile --> HashEq{"Hash matches index.sha256?"}
-    HashEq -->|"No"| UnstagedMod
-    HashEq -->|"Yes"| LoopStart
-    SkipHash --> LoopStart
-    UnstagedDel --> LoopStart
-    UnstagedMod --> LoopStart
-    LoopStart -->|"No"| WalkWT["Walk working tree excluding .bts/ (Untracked files)"]
-    WalkWT --> Done(["Print status and exit 0"])
-```
-
-### 5.8 State Diagram — `HEAD` Lifecycle (`REQ-INIT-1`, `REQ-CMT-4..5`, `REQ-CHK-1`, `REQ-CHK-3`)
+### 5.6 State Diagram — `HEAD` Lifecycle (`REQ-INIT-1`, `REQ-CMT-4..5`, `REQ-CHK-1`, `REQ-CHK-3`)
 
 ```mermaid
 stateDiagram-v2
@@ -353,4 +302,75 @@ stateDiagram-v2
     AttachedBranch --> DetachedHEAD : bts checkout commit-hash
     DetachedHEAD --> DetachedHEAD : bts commit updates HEAD and warns
     DetachedHEAD --> AttachedBranch : bts checkout branch
+```
+
+---
+
+## 6. Data Flow Diagrams (DFD: Level-0, Level-1, and Level-2)
+
+### 6.1 DFD Level-0 (Context Diagram)
+
+```mermaid
+flowchart LR
+    Dev["Developer (External Entity)"] -->|"CLI commands and arguments"| Sys(("0.0 BTS Version Control System"))
+    Sys -->|"Status, diffs, logs, exit codes 0..3"| Dev
+    WT["Working Directory (External Entity)"] -->|"File bytes, symlinks, lstat metadata"| Sys
+    Sys -->|"Restored files, modes, symlinks"| WT
+```
+
+### 6.2 DFD Level-1 (Core Subsystems and Data Stores)
+
+```mermaid
+flowchart TD
+    Dev["Developer"] -->|"Commands and flags"| P1(("1.0 Init and Config"))
+    Dev -->|"add / status"| P2(("2.0 Staging and Status"))
+    Dev -->|"commit -m"| P3(("3.0 Tree and Commit Builder"))
+    Dev -->|"branch / checkout / log"| P4(("4.0 Branch, Checkout and Log"))
+    Dev -->|"diff"| P5(("5.0 Myers Diff Engine"))
+
+    WT["Working Directory"] <-->|"Read bytes, lstat, restore files"| P2
+    WT <-->|"Write target files and modes"| P4
+    WT -->|"Read working file bytes"| P5
+
+    P1 <-->|"Read and write key-value pairs"| D4[("D4: .bts/config")]
+    P1 -->|"Create initial HEAD and dirs"| D3[("D3: .bts/refs and HEAD")]
+
+    P2 <-->|"Write blobs and read HEAD tree"| D1[("D1: .bts/objects")]
+    P2 <-->|"Read and atomic write BTSI index"| D2[("D2: .bts/index")]
+
+    P3 -->|"Write tree and commit objects"| D1
+    P3 -->|"Read staged entries"| D2
+    P3 <-->|"Read HEAD and atomic update ref"| D3
+
+    P4 <-->|"Read commits, trees, blobs"| D1
+    P4 -->|"Rebuild index on checkout"| D2
+    P4 <-->|"Read and update branch refs / HEAD"| D3
+
+    P5 -->|"Read staged blobs"| D1
+    P5 -->|"Read staged hashes"| D2
+```
+
+### 6.3 DFD Level-2 (Expansion of 2.0 Staging & 3.0 Commit Pipeline)
+
+```mermaid
+flowchart TD
+    Dev["Developer"] -->|"bts add path..."| P21(("2.1 Path Resolver and lstat"))
+    WT["Working Directory"] -->|"lstat mode, size, mtime"| P21
+    WT -->|"Raw file or symlink bytes"| P22(("2.2 Blob Frame, SHA-256 and Zlib"))
+
+    P21 -->|"Validated repo paths and modes"| P22
+    P22 -->|"SHA-256 object ID and metadata"| P23(("2.3 Binary Index Serializer"))
+    P22 -->|"Atomic 0444 compressed blob"| D1[("D1: .bts/objects")]
+
+    D2[("D2: .bts/index")] <-->|"Read old and atomic rename new BTSI v1"| P23
+
+    Dev -->|"bts commit -m msg"| P31(("3.1 Recursive Tree Builder"))
+    D2 -->|"Sorted IndexEntry list"| P31
+    D4[("D4: .bts/config")] -->|"user.name and user.email"| P32(("3.2 Commit and Atomic Ref Writer"))
+    P31 -->|"Write sorted tree objects"| D1
+    P31 -->|"Root tree SHA-256"| P32
+    D3[("D3: .bts/refs and HEAD")] -->|"Current parent commit hash"| P32
+    P32 -->|"Write commit object"| D1
+    P32 -->|"Atomic lock + rename new tip hash"| D3
+    P32 -->|"Branch and short hash summary"| Dev
 ```
